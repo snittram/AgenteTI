@@ -1,0 +1,413 @@
+﻿# Integração com o shell do Windows: atalhos (.lnk), pastas especiais e a identidade do AgenteTI na barra de tarefas
+# (AppUserModelID). É a única parte do projeto que usa COM e a API do shell; Launcher.psm1 decide o que criar e onde.
+# Tudo aqui é opcional: se o Windows recusar, o AgenteTI continua funcionando (só perde o acabamento).
+
+# C# compatível com o compilador do Windows PowerShell 5.1 (C# 5): sem interpolação de strings, sem "?." e afins.
+$script:ShellInteropSource = @'
+using System;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+using System.Threading;
+
+namespace AgenteTI
+{
+    public static class ShellIdentity
+    {
+        // System.AppUserModel.* (propkey.h): mesmo GUID, números 2 a 5.
+        private static readonly Guid AppUserModelFormat = new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3");
+        private const uint RelaunchCommandId = 2;
+        private const uint RelaunchIconResourceId = 3;
+        private const uint RelaunchDisplayNameId = 4;
+        private const uint AppIdId = 5;
+        private const int StgmReadWrite = 2;
+
+        [StructLayout(LayoutKind.Sequential, Pack = 4)]
+        private struct PropertyKey
+        {
+            public Guid FormatId;
+            public uint PropertyId;
+        }
+
+        // PROPVARIANT: 16 bytes em x86 e 24 em x64 (o ponteiro muda de tamanho e o alinhamento acompanha).
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PropVariant
+        {
+            public ushort ValueType;
+            public ushort Reserved1;
+            public ushort Reserved2;
+            public ushort Reserved3;
+            public IntPtr Pointer;
+            public int Extra;
+        }
+
+        [ComImport]
+        [Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IPropertyStore
+        {
+            [PreserveSig] int GetCount(out uint count);
+            [PreserveSig] int GetAt(uint index, out PropertyKey key);
+            [PreserveSig] int GetValue(ref PropertyKey key, out PropVariant value);
+            [PreserveSig] int SetValue(ref PropertyKey key, ref PropVariant value);
+            [PreserveSig] int Commit();
+        }
+
+        [ComImport]
+        [Guid("00021401-0000-0000-C000-000000000046")]
+        private class ShellLinkObject
+        {
+        }
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+        private static extern int SetCurrentProcessExplicitAppUserModelID([MarshalAs(UnmanagedType.LPWStr)] string appId);
+
+        [DllImport("shell32.dll", ExactSpelling = true)]
+        private static extern int SHGetPropertyStoreForWindow(IntPtr handle, ref Guid riid, [MarshalAs(UnmanagedType.Interface)] out IPropertyStore store);
+
+        [DllImport("ole32.dll", ExactSpelling = true)]
+        private static extern int PropVariantClear(ref PropVariant variant);
+
+        [DllImport("shell32.dll", ExactSpelling = true)]
+        private static extern void SHChangeNotify(int eventId, uint flags, IntPtr item1, IntPtr item2);
+
+        // SHCNE_ASSOCCHANGED: o Explorador relê os ícones (um atalho regravado com um ícone novo no mesmo arquivo
+        // continuaria com o antigo, guardado no cache).
+        public static void RefreshIcons()
+        {
+            SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero);
+        }
+
+        // Devolve 0 (S_OK) quando o Windows aceitou.
+        public static int SetProcessAppId(string appId)
+        {
+            return SetCurrentProcessExplicitAppUserModelID(appId);
+        }
+
+        private static void SetString(IPropertyStore store, uint propertyId, string value)
+        {
+            PropertyKey key = new PropertyKey();
+            key.FormatId = AppUserModelFormat;
+            key.PropertyId = propertyId;
+
+            // InitPropVariantFromString é uma função "inline" do propvarutil.h: nenhuma DLL a exporta, e chamá-la daqui
+            // sempre falhava (EntryPointNotFoundException). O PROPVARIANT de texto é montado à mão: VT_LPWSTR com a cópia
+            // da string na memória do COM, que o PropVariantClear libera.
+            PropVariant variant = new PropVariant();
+            variant.ValueType = 31;
+            variant.Pointer = Marshal.StringToCoTaskMemUni(value);
+
+            try
+            {
+                Marshal.ThrowExceptionForHR(store.SetValue(ref key, ref variant));
+            }
+            finally
+            {
+                PropVariantClear(ref variant);
+            }
+        }
+
+        // Faz o botão da barra de tarefas e o "Fixar" da janela abrirem o AgenteTI (nome, ícone e comando próprios),
+        // em vez do PowerShell que hospeda a janela. Devolve "" se deu certo ou a mensagem do erro.
+        public static string SetWindowRelaunch(IntPtr handle, string appId, string command, string iconResource, string displayName)
+        {
+            try
+            {
+                Guid storeId = new Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99");
+                IPropertyStore store;
+                Marshal.ThrowExceptionForHR(SHGetPropertyStoreForWindow(handle, ref storeId, out store));
+
+                try
+                {
+                    SetString(store, AppIdId, appId);
+                    SetString(store, RelaunchCommandId, command);
+                    SetString(store, RelaunchDisplayNameId, displayName);
+
+                    if (!string.IsNullOrEmpty(iconResource))
+                    {
+                        SetString(store, RelaunchIconResourceId, iconResource);
+                    }
+
+                    Marshal.ThrowExceptionForHR(store.Commit());
+                }
+                finally
+                {
+                    Marshal.ReleaseComObject(store);
+                }
+
+                return "";
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
+
+        private static void SetShortcutAppIdCore(string shortcutPath, string appId)
+        {
+            object link = new ShellLinkObject();
+
+            try
+            {
+                IPersistFile file = (IPersistFile)link;
+                file.Load(shortcutPath, StgmReadWrite);
+
+                SetString((IPropertyStore)link, AppIdId, appId);
+                Marshal.ThrowExceptionForHR(((IPropertyStore)link).Commit());
+
+                file.Save(shortcutPath, true);
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(link);
+            }
+        }
+
+        // Grava o AppUserModelID dentro do .lnk, para que o atalho (e o "Fixar") se una ao botão da janela.
+        // Roda em uma thread própria em modo STA, que é o que o objeto de atalho do shell espera.
+        // Devolve "" se deu certo ou a mensagem do erro.
+        public static string SetShortcutAppId(string shortcutPath, string appId)
+        {
+            string failure = "";
+
+            Thread worker = new Thread(delegate ()
+            {
+                try
+                {
+                    SetShortcutAppIdCore(shortcutPath, appId);
+                }
+                catch (Exception ex)
+                {
+                    failure = ex.Message;
+                }
+            });
+
+            worker.SetApartmentState(ApartmentState.STA);
+            worker.Start();
+            worker.Join();
+
+            return failure;
+        }
+    }
+}
+'@
+
+
+function Initialize-AgenteTIShellInterop {
+    # Compila a ponte com o shell uma vez por processo. Devolve $false se não foi possível.
+    if ("AgenteTI.ShellIdentity" -as [type]) {
+        return $true
+    }
+
+    try {
+        Add-Type -TypeDefinition $script:ShellInteropSource -ErrorAction Stop
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+
+function Get-AgenteTISpecialFolder {
+    # Pasta do perfil de quem está executando (respeita OneDrive e nomes em outros idiomas). Vazio se não existir.
+    param (
+        [Parameter(Mandatory)]
+        [ValidateSet("Desktop", "StartMenu")]
+        [string]$Name
+    )
+
+    $special = switch ($Name) {
+        "Desktop"   { "DesktopDirectory" }
+        "StartMenu" { "Programs" }
+    }
+
+    try {
+        return [string][Environment]::GetFolderPath($special)
+    }
+    catch {
+        return ""
+    }
+}
+
+
+function Set-AgenteTIProcessAppId {
+    # Dá ao processo um identificador próprio na barra de tarefas. Sem isso o Windows agrupa a janela com os demais
+    # PowerShell e mostra o ícone do PowerShell. Devolve $true se o Windows aceitou.
+    param (
+        [Parameter(Mandatory)]
+        [string]$AppId
+    )
+
+    if (-not (Initialize-AgenteTIShellInterop)) {
+        return $false
+    }
+
+    try {
+        return ([AgenteTI.ShellIdentity]::SetProcessAppId($AppId) -eq 0)
+    }
+    catch {
+        return $false
+    }
+}
+
+
+function Set-AgenteTIWindowRelaunch {
+    # Associa à janela o comando, o nome e o ícone do AgenteTI (usados pelo "Fixar na barra de tarefas").
+    # A janela precisa já ter um identificador (Handle válido). Devolve $true se o Windows aceitou.
+    param (
+        [Parameter(Mandatory)]
+        [IntPtr]$Handle,
+
+        [Parameter(Mandatory)]
+        [string]$AppId,
+
+        [Parameter(Mandatory)]
+        [string]$Command,
+
+        [string]$IconResource = "",
+
+        [string]$DisplayName = "AgenteTI"
+    )
+
+    if (-not (Initialize-AgenteTIShellInterop)) {
+        return $false
+    }
+
+    try {
+        return [string]::IsNullOrEmpty([AgenteTI.ShellIdentity]::SetWindowRelaunch($Handle, $AppId, $Command, $IconResource, $DisplayName))
+    }
+    catch {
+        return $false
+    }
+}
+
+
+function Save-AgenteTIShortcutFile {
+    <#
+    Grava um atalho (.lnk). Um erro ao gravar (pasta sem permissão, por exemplo) sobe como exceção; já a gravação do
+    identificador da barra de tarefas é opcional e só resulta em AppIdSet = $false.
+    #>
+    param (
+        [Parameter(Mandatory)]
+        [string]$Path,
+
+        [Parameter(Mandatory)]
+        [string]$Target,
+
+        [string]$Arguments = "",
+
+        [string]$WorkingDirectory = "",
+
+        [string]$IconLocation = "",
+
+        [string]$Description = "",
+
+        [string]$AppId = ""
+    )
+
+    $shell = $null
+    $link = $null
+
+    try {
+        $shell = New-Object -ComObject WScript.Shell
+        $link = $shell.CreateShortcut($Path)
+        $link.TargetPath = $Target
+        $link.Arguments = $Arguments
+
+        if (-not [string]::IsNullOrEmpty($WorkingDirectory)) { $link.WorkingDirectory = $WorkingDirectory }
+        if (-not [string]::IsNullOrEmpty($IconLocation)) { $link.IconLocation = $IconLocation }
+
+        $link.Description = $Description
+        $link.WindowStyle = 7   # minimizada: o console do PowerShell nem chega a aparecer
+        $link.Save()
+    }
+    finally {
+        foreach ($com in @($link, $shell)) {
+            if ($null -ne $com) { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($com) }
+        }
+    }
+
+    $appIdSet = $false
+
+    if (-not [string]::IsNullOrEmpty($AppId) -and (Initialize-AgenteTIShellInterop)) {
+        try {
+            $appIdSet = [string]::IsNullOrEmpty([AgenteTI.ShellIdentity]::SetShortcutAppId($Path, $AppId))
+        }
+        catch {
+            $appIdSet = $false
+        }
+    }
+
+    return [PSCustomObject]@{
+        Path     = $Path
+        AppIdSet = $appIdSet
+    }
+}
+
+
+function Test-AgenteTIAdvertisedShortcut {
+    <#
+    Verdadeiro para um atalho "anunciado" do Windows Installer (o do Office e de muitos programas MSI): ele não aponta
+    para o programa, e sim para o produto instalado, que o Windows resolve na hora de abrir. O TargetPath que se lê dele
+    é o ícone guardado em %WINDIR%\Installer, e não o programa: se outro limpador apagou esse ícone, o atalho parece
+    quebrado e continua funcionando. O sinal fica no cabeçalho do .lnk: o campo LinkFlags (4 bytes no deslocamento
+    0x14) com o bit HasDarwinID (0x1000).
+    #>
+    param (
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $stream = $null
+
+    try {
+        $stream = New-Object System.IO.FileStream -ArgumentList $Path, ([IO.FileMode]::Open), ([IO.FileAccess]::Read), ([IO.FileShare]::ReadWrite)
+        $header = New-Object byte[] 24
+
+        if ($stream.Read($header, 0, 24) -lt 24) { return $false }
+        if ([BitConverter]::ToInt32($header, 0) -ne 0x4C) { return $false }
+
+        return (([BitConverter]::ToInt32($header, 0x14) -band 0x1000) -ne 0)
+    }
+    catch {
+        return $false
+    }
+    finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+    }
+}
+
+
+function Get-AgenteTIShortcutTarget {
+    # Para onde um atalho (.lnk) aponta: TargetPath e Arguments. $null se o arquivo não pôde ser lido como atalho.
+    # Atalhos de aplicativos da Store voltam com o TargetPath vazio; os anunciados do Windows Installer, com o ícone
+    # guardado (veja Test-AgenteTIAdvertisedShortcut).
+    param (
+        [Parameter(Mandatory)]
+        [string]$Path
+    )
+
+    $shell = $null
+    $link = $null
+
+    try {
+        $shell = New-Object -ComObject WScript.Shell
+        $link = $shell.CreateShortcut($Path)
+
+        return [PSCustomObject]@{
+            TargetPath = [string]$link.TargetPath
+            Arguments  = [string]$link.Arguments
+        }
+    }
+    catch {
+        return $null
+    }
+    finally {
+        foreach ($com in @($link, $shell)) {
+            if ($null -ne $com) { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($com) }
+        }
+    }
+}
+
+
+Export-ModuleMember -Function *

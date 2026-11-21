@@ -1,0 +1,24 @@
+# Gerados pelo AgenteTI e pelas ferramentas
+SHA256SUMS.txt
+*.zip
+*.log
+
+# Sistema e editores
+Thumbs.db
+desktop.ini
+.DS_Store
+.vscode/
+.idea/
+
+# Arquivos locais, builds e credenciais
+dist/
+build/
+*.tmp
+*.bak
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.pem
+*.key
