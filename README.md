@@ -51,7 +51,7 @@ Não execute os arquivos de dentro do ZIP: o AgenteTI precisa da estrutura compl
 
 - **Permissões:** ações de limpeza, reparo, atualização e ajustes podem alterar o sistema. Mantenha seus backups e confira o que será executado; nem toda ação pode ser desfeita.
 - **Inicialização:** os lançadores `.cmd` iniciam o PowerShell com `ExecutionPolicy Bypass` para o processo e, ao abrir a janela ou o menu, removem recursivamente o bloqueio de arquivos baixados dentro da pasta do AgenteTI. Use uma pasta exclusiva para o aplicativo e confira a origem dos arquivos.
-- **Assinatura:** os scripts da versão 1.2 não estão assinados digitalmente. O Windows pode apresentar avisos ao abrir arquivos baixados.
+- **Assinatura:** os scripts da versão 1.3 não estão assinados digitalmente. O Windows pode apresentar avisos ao abrir arquivos baixados.
 - **Dados locais:** logs, relatórios e arquivos de estado ficam principalmente em `%LOCALAPPDATA%\AgenteTI`. Relatórios e logs podem conter informações do computador; confira seu conteúdo antes de compartilhá-los.
 - **Recursos online:** algumas funções acessam serviços externos, como GitHub, winget, Windows Update e serviços de rede. O monitor na bandeja e a manutenção agendada são opcionais.
 - **Backup antes de formatar:** o recurso pode guardar lista de programas, drivers, ajustes e, opcionalmente, redes Wi-Fi. Ele **não copia documentos, fotos ou outros arquivos pessoais**. Se você incluir redes Wi-Fi, as senhas são armazenadas em texto puro; proteja o backup.

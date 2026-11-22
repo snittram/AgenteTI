@@ -4897,7 +4897,22 @@ function Get-GuiCardGrid {
 
 function Update-GuiContentWidth {
     try {
-        $available = $pageScroll.ViewportWidth - 4
+        # A área é medida sempre com o espaço da barra de rolagem reservado, esteja ela à vista ou não. Medida pela área
+        # visível (ViewportWidth), a grade mudava quando a barra aparecia: na janela maximizada, os cartões alternavam
+        # sem parar entre 4 e 3 por linha (4 cabiam sem a barra; com a largura nova, o 4º descia, a página crescia, a
+        # barra voltava e a largura mudava de novo).
+        $scrollBar = 12.0
+
+        try {
+            $style = $window.TryFindResource([System.Windows.Controls.Primitives.ScrollBar])
+            $setter = @($style.Setters | Where-Object { $_.Property.Name -eq "Width" })[0]
+            if ($null -ne $setter) { $scrollBar = [double]$setter.Value }
+        }
+        catch {
+            # Fica a largura do estilo da janela (12).
+        }
+
+        $available = $pageScroll.ActualWidth - $pageScroll.Padding.Left - $pageScroll.Padding.Right - $scrollBar - 4
         if ($available -le 0) { return }
 
         $grid = Get-GuiCardGrid -Available $available
@@ -4936,10 +4951,6 @@ function Update-GuiRunViewWidth {
 }
 
 $runView.Parent.Add_SizeChanged({ Update-GuiRunViewWidth })
-$pageScroll.Add_ScrollChanged({
-    param ($sender, $eventArgs)
-    if ($eventArgs.ViewportWidthChange -ne 0) { Update-GuiContentWidth }
-})
 
 # O resumo que é o conteúdo da tela acompanha a altura da janela; a pergunta continua inteira à vista.
 $runView.Add_SizeChanged({

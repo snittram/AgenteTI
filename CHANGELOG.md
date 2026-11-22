@@ -3,6 +3,10 @@
 Numeração: começa em 1.0 e sobe +1 depois do ponto a cada alteração (1.0 → 1.1 → 1.2 … 1.9 → 1.10 → 1.11).
 A versão fica em `modules\Core.psm1` (`$script:AgenteTIBuild`).
 
+## 1.3 (22/11/2026)
+
+- Janela maximizada: os cartões não ficam mais trocando de lugar sem parar (alternavam entre 4 e 3 por linha quando a barra de rolagem aparecia e sumia). A largura da grade agora reserva sempre o espaço da barra de rolagem.
+
 ## 1.2 (22/11/2026)
 
 - Início: o cartão **Espaço livre nos discos** (antes "Disco do sistema") mostra o espaço livre de todos os discos internos, com o do Windows primeiro (por exemplo, `C: 41,4 GB · B: 94,3 GB`). A nota de saúde continua avaliando só o disco do Windows; outro disco quase cheio deixa o cartão em amarelo e aparece no complemento.
