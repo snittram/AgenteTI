@@ -19,7 +19,7 @@ rem para processos de 32 bits e leva ao System32 de verdade.
 set "AGENTETI_PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" set "AGENTETI_PS=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
 
-rem A janela abre sempre como Administrador: o script se reabre pedindo a permissao (aviso do Windows). Nenhum
+rem A janela abre sem Administrador (sem o aviso do Windows); pede a permissao so quando uma acao precisar. Nenhum
 rem console fica visivel.
 start "" "%AGENTETI_PS%" -NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File "%~dp0AgenteTI.Gui.ps1"
 

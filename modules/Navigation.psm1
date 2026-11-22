@@ -15,8 +15,7 @@ $script:AgenteTINavigation = $null
 
 function New-AgenteTINavItem {
     # Kind = Action (executa uma função do AgenteTI) ou Shortcut (abre uma janela do Windows).
-    # RequiresAdmin: a ação só funciona elevada (a janela aberta sem Administrador, quando o aviso do Windows foi recusado,
-    # pede de novo antes).
+    # RequiresAdmin: a ação só funciona elevada (a janela, que abre sem Administrador, pede a permissão antes de rodá-la).
     # Keywords: palavras extras que a busca reconhece (sinônimos, nomes de ferramentas, sintomas).
     # Group: a seção da página em que o item aparece ("Liberar espaço", "Ferramentas do Windows"); os itens de uma seção
     # ficam juntos na tabela, e a janela e o console mostram o nome da seção antes deles.
