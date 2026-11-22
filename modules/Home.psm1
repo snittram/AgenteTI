@@ -16,7 +16,7 @@
 # conta ficam em Sobre este PC (um atalho de "Por onde começar") e no relatório, e a manutenção agendada, que é opcional,
 # só aparece quando pede atenção, como um ponto da nota.
 $script:AgenteTIHomeFactLabels = [ordered]@{
-    disk        = "Disco do sistema"
+    disk        = "Espaço livre nos discos"
     security    = "Proteção"
     windows     = "Windows"
     reboot      = "Reinício pendente"
@@ -470,41 +470,73 @@ function Read-AgenteTIHomeSession {
 
 
 function Read-AgenteTIHomeDisk {
-    # O espaço livre na unidade do Windows. Os pontos de atenção levam à Limpeza personalizada: ela mostra o tamanho de
-    # cada coisa que dá para limpar (temporários, caches, relatórios de erro, a Lixeira) e solta mais espaço que a
-    # Limpeza rápida, que só cuida dos temporários e da Lixeira.
+    # O espaço livre em cada unidade fixa (a do Windows primeiro). Só a unidade do Windows entra na nota de saúde; as
+    # outras, quando quase cheias, deixam o cartão em amarelo e aparecem no complemento. Os pontos de atenção levam à
+    # Limpeza personalizada: ela mostra o tamanho de cada coisa que dá para limpar (temporários, caches, relatórios de
+    # erro, a Lixeira) e solta mais espaço que a Limpeza rápida, que só cuida dos temporários e da Lixeira.
     $fact = $null
     $issues = @()
     $unread = @()
 
     try {
-        $space = Get-AgenteTISystemDriveSpace
+        $drives = @(Get-AgenteTIFixedDrivesSpace)
 
-        if ($null -eq $space) { throw "sem dados" }
+        # Sem a lista (caso raro), ao menos a unidade do Windows.
+        if ($drives.Count -eq 0) {
+            $space = Get-AgenteTISystemDriveSpace
+            if ($null -eq $space) { throw "sem dados" }
 
-        $level = Get-AgenteTIDiskSpaceLevel -FreeBytes $space.FreeBytes -TotalBytes $space.TotalBytes
-
-        # Um espaço livre que não é número (ou negativo) não vira "0 B livres" num cartão tranquilo: é leitura que falhou.
-        if ($level -eq "Unknown") { throw "espaço livre desconhecido" }
-
-        $free = Format-AgenteTIBytes -Bytes $space.FreeBytes
-        $total = Format-AgenteTIBytes -Bytes $space.TotalBytes
-        $text = "$free livres de $total"
-        $detail = "de $total"
-        $level = $(switch ($level) { "Critical" { "Critical" } "Low" { "Low" } default { "Normal" } })
-
-        switch ($level) {
-            "Critical" {
-                $text += " (quase cheio)"; $detail += " · quase cheio"; $level = "Warn"
-                $issues += New-AgenteTIHealthIssue -Id "disk" -Text "O disco do sistema está quase cheio" -Weight 25 -Target "cleanup.custom" -ButtonText "Liberar espaço"
-            }
-            "Low" {
-                $text += " (pouco espaço)"; $detail += " · pouco espaço"; $level = "Warn"
-                $issues += New-AgenteTIHealthIssue -Id "disk" -Text "Pouco espaço livre no disco do sistema" -Weight 12 -Target "cleanup.custom" -ButtonText "Liberar espaço"
-            }
+            $name = ([string][IO.Path]::GetPathRoot($env:SystemRoot)).TrimEnd("\")
+            $drives = @([PSCustomObject]@{ Name = $name; FreeBytes = $space.FreeBytes; TotalBytes = $space.TotalBytes; System = $true })
         }
 
-        $fact = New-AgenteTIHomeFact -Id "disk" -Text $text -Value "$free livres" -Detail $detail -Level $level
+        $values = @()
+        $sentences = @()
+        $warnings = @()
+        $anyWarn = $false
+        $systemRead = $false
+
+        foreach ($drive in $drives) {
+            $level = Get-AgenteTIDiskSpaceLevel -FreeBytes $drive.FreeBytes -TotalBytes $drive.TotalBytes -System ([bool]$drive.System)
+
+            # Um espaço livre que não é número (ou negativo) não vira "0 B livres" num cartão tranquilo: é leitura que
+            # falhou. Na unidade do Windows, ela fica sem leitura (a nota avisa); nas outras, a unidade só sai do cartão.
+            if ($level -eq "Unknown") { continue }
+
+            if ($drive.System) { $systemRead = $true }
+
+            $free = Format-AgenteTIBytes -Bytes $drive.FreeBytes
+            $total = Format-AgenteTIBytes -Bytes $drive.TotalBytes
+            $sentence = "$($drive.Name) $free livres de $total"
+
+            switch ($level) {
+                "Critical" {
+                    $sentence += " (quase cheio)"; $warnings += "$($drive.Name) quase cheio"; $anyWarn = $true
+
+                    if ($drive.System) {
+                        $issues += New-AgenteTIHealthIssue -Id "disk" -Text "O disco do sistema está quase cheio" -Weight 25 -Target "cleanup.custom" -ButtonText "Liberar espaço"
+                    }
+                }
+                "Low" {
+                    $sentence += " (pouco espaço)"; $warnings += "$($drive.Name) pouco espaço"; $anyWarn = $true
+
+                    if ($drive.System) {
+                        $issues += New-AgenteTIHealthIssue -Id "disk" -Text "Pouco espaço livre no disco do sistema" -Weight 12 -Target "cleanup.custom" -ButtonText "Liberar espaço"
+                    }
+                }
+            }
+
+            $values += "$($drive.Name) $free"
+            $sentences += $sentence
+        }
+
+        if (-not $systemRead) { throw "espaço livre da unidade do Windows desconhecido" }
+
+        # O cartão tem uma linha para o valor e uma para o complemento; a frase inteira aparece ao passar o mouse.
+        $value = $(if ($values.Count -eq 1) { "$($values[0]) livres" } else { $values -join " · " })
+        $detail = $(if ($warnings.Count -gt 0) { $warnings -join " · " } elseif ($values.Count -eq 1) { ($sentences[0] -replace '^.*? livres ', '') } else { "livres" })
+
+        $fact = New-AgenteTIHomeFact -Id "disk" -Text ($sentences -join " · ") -Value $value -Detail $detail -Level $(if ($anyWarn) { "Warn" } else { "Normal" })
     }
     catch {
         $issues = @()

@@ -201,11 +201,10 @@ $setupName = "AgenteTI-Setup-$version.exe"
 $setupPath = Join-Path $distDir $setupName
 $hashPath = "$setupPath.sha256"
 
-foreach ($old in @($setupPath, $hashPath)) {
-    if (Test-Path -LiteralPath $old) {
-        Remove-Item -LiteralPath $old -Force
-    }
-}
+# Só o instalador desta versão fica em dist\: os de versões anteriores (e o desta, se já existir) são apagados.
+Get-ChildItem -LiteralPath $distDir -File -Filter "AgenteTI-Setup-*" |
+    Where-Object { $_.Name -match '^AgenteTI-Setup-[0-9.]+\.exe(\.sha256)?$' } |
+    Remove-Item -Force
 
 Write-Host "Compilando $setupName..."
 Invoke-BuildCompiler -Compiler $compiler -Arguments ($commonArguments + @(

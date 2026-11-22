@@ -3,6 +3,11 @@
 Numeração: começa em 1.0 e sobe +1 depois do ponto a cada alteração (1.0 → 1.1 → 1.2 … 1.9 → 1.10 → 1.11).
 A versão fica em `modules\Core.psm1` (`$script:AgenteTIBuild`).
 
+## 1.2 (22/11/2026)
+
+- Início: o cartão **Espaço livre nos discos** (antes "Disco do sistema") mostra o espaço livre de todos os discos internos, com o do Windows primeiro (por exemplo, `C: 41,4 GB · B: 94,3 GB`). A nota de saúde continua avaliando só o disco do Windows; outro disco quase cheio deixa o cartão em amarelo e aparece no complemento.
+- `tools\Build-Installer.ps1` deixa em `dist\` só o instalador da versão gerada.
+
 ## 1.1 (22/11/2026)
 
 - **Atualizar o AgenteTI** (antes "Verificar nova versão", em Sobre o AgenteTI): numa cópia instalada pelo instalador, baixa o `AgenteTI-Setup` da nova versão, confere o SHA-256, fecha o AgenteTI, instala por cima e o reabre, sem desinstalar. Cópias extraídas do zip continuam com o download do zip e a cópia manual.

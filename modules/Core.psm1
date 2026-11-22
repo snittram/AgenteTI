@@ -1,7 +1,7 @@
 ﻿# Núcleo: ambiente, sessão, registro, log, formatação e execução de programas nativos.
 # Nada aqui desenha cabeçalhos ou faz perguntas; isso fica em Console.psm1.
 
-$script:AgenteTIBuild = "1.1"
+$script:AgenteTIBuild = "1.2"
 
 # A trava dos arquivos de estado (Invoke-AgenteTIStateLock): uma por sessão do Windows.
 $script:AgenteTIStateLockName = "Local\AgenteTI.State"
@@ -665,6 +665,45 @@ function Get-AgenteTISystemDriveSpace {
     catch {
         return $null
     }
+}
+
+
+function Get-AgenteTIFixedDrivesSpace {
+    <#
+    Espaço livre e total de cada unidade fixa com letra (os discos internos e as partições deles), a do Windows primeiro e
+    as outras em ordem de letra. Cada item: Name ("C:"), FreeBytes, TotalBytes e System (é a unidade do Windows). Usa o
+    DriveInfo, sem o WMI, para a tela inicial não esperar. Unidade que não responde fica de fora; lista vazia sem leitura.
+    #>
+    $systemRoot = ""
+
+    try { $systemRoot = [string][IO.Path]::GetPathRoot($env:SystemRoot) } catch { $systemRoot = "" }
+
+    $drives = @()
+
+    try {
+        $all = @([IO.DriveInfo]::GetDrives())
+    }
+    catch {
+        return @()
+    }
+
+    foreach ($drive in $all) {
+        try {
+            if ($drive.DriveType -ne [IO.DriveType]::Fixed -or -not $drive.IsReady) { continue }
+
+            $drives += [PSCustomObject]@{
+                Name       = ([string]$drive.Name).TrimEnd("\")
+                FreeBytes  = [int64]$drive.AvailableFreeSpace
+                TotalBytes = [int64]$drive.TotalSize
+                System     = ($systemRoot -and [string]$drive.Name -ieq $systemRoot)
+            }
+        }
+        catch {
+            # Uma unidade que não respondeu não derruba a leitura das outras.
+        }
+    }
+
+    return @($drives | Sort-Object -Property @{ Expression = { -not $_.System } }, Name)
 }
 
 
