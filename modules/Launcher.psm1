@@ -105,9 +105,22 @@ function Get-AgenteTILaunchDefinition {
         $iconLocation = "$icon,0"
     }
 
+    $arguments = "-NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File $(ConvertTo-AgenteTICommandLineArgument -Value $guiScript)"
+
+    # Instalado pelo AgenteTI-Setup, a pasta traz o AgenteTI.exe (sem console). No Windows 11, um atalho direto para o
+    # powershell.exe abre o Terminal do Windows, que ignora o -WindowStyle Hidden e deixa uma janela preta aberta.
+    $nativeLauncher = Join-Path $Root "AgenteTI.exe"
+
+    if (Test-Path -LiteralPath $nativeLauncher -PathType Leaf) {
+        $executable = $nativeLauncher
+        $arguments = ""
+
+        if ($null -eq $icon) { $iconLocation = "$nativeLauncher,0" }
+    }
+
     return [PSCustomObject]@{
         Executable       = $executable
-        Arguments        = "-NoProfile -ExecutionPolicy Bypass -STA -WindowStyle Hidden -File $(ConvertTo-AgenteTICommandLineArgument -Value $guiScript)"
+        Arguments        = $arguments
         WorkingDirectory = $Root
         IconLocation     = $iconLocation
         HasIcon          = ($null -ne $icon)
@@ -566,12 +579,12 @@ function Get-AgenteTIAboutPageStatus {
     }
 
     try {
-        # O AgenteTI abre sempre como Administrador; sem ele, a pessoa recusou o aviso do Windows ao abrir.
+        # A janela abre sem Administrador e só se reabre elevada quando uma ação pede: os dois estados são normais.
         if (Test-AgenteTIAdministrator) {
             $rows += [PSCustomObject]@{ Label = "Administrador"; Text = "esta janela está aberta como Administrador"; Level = "Normal" }
         }
         else {
-            $rows += [PSCustomObject]@{ Label = "Administrador"; Text = "esta janela está sem Administrador; as ações que alteram o sistema pedem a permissão de novo"; Level = "Warn" }
+            $rows += [PSCustomObject]@{ Label = "Administrador"; Text = "esta janela está sem Administrador; as ações que alteram o sistema pedem a permissão quando forem usadas"; Level = "Normal" }
         }
     }
     catch {

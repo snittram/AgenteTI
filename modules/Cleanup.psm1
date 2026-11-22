@@ -889,7 +889,7 @@ function Invoke-AgenteTIFolderCleanup {
             if (-not $listing.Readable) {
                 # Sem conseguir listar, "vazia" seria um palpite: a pasta pode estar cheia e só não ser permitida.
                 Write-AgenteTIStatus -Type Error -Message "Não foi possível ler a pasta: $($listing.Reason)"
-                Write-AgenteTIStatus -Type Info -Message "Se a pasta for do sistema, feche o AgenteTI, abra de novo e aceite o aviso do Windows."
+                Write-AgenteTIStatus -Type Info -Message "Se a pasta for do sistema, $(Get-AgenteTIElevateHint)."
                 $result = New-AgenteTIResult -Kind Failed -Detail "pasta ilegível"
             }
             else {
@@ -2677,7 +2677,7 @@ function Show-AgenteTISpaceAnalysis {
             Write-AgenteTIStatus -Type $type -Message "Não foi possível medir: $(Join-AgenteTIList -Items @($unmeasured))."
 
             if (-not $isAdmin) {
-                Write-AgenteTIStatus -Type Info -Message "Para incluir as pastas do sistema, feche o AgenteTI, abra de novo e aceite o aviso do Windows."
+                Write-AgenteTIStatus -Type Info -Message "Para incluir as pastas do sistema, $(Get-AgenteTIElevateHint)."
             }
         }
 

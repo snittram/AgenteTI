@@ -109,7 +109,7 @@ function Remove-AgenteTIBrokenShortcuts {
         Write-Host ""
 
         if ($locked -gt 0) {
-            Write-AgenteTIStatus -Type Info -Message "$(Format-AgenteTICount -Count $locked -One 'atalho é' -Many 'atalhos são') de todos os usuários: para removê-$(if ($locked -eq 1) { 'lo' } else { 'los' }), feche o AgenteTI, abra de novo e aceite o aviso do Windows."
+            Write-AgenteTIStatus -Type Info -Message "$(Format-AgenteTICount -Count $locked -One 'atalho é' -Many 'atalhos são') de todos os usuários: para removê-$(if ($locked -eq 1) { 'lo' } else { 'los' }), $(Get-AgenteTIElevateHint)."
         }
 
         if ($usable.Count -eq 0) {
@@ -998,7 +998,7 @@ function Select-AgenteTIProgramLeftovers {
     Write-Host ""
 
     if ($usable.Count -lt $leftovers.Count) {
-        Write-AgenteTIStatus -Type Info -Message "Pastas em Arquivos de Programas e ProgramData pedem Administrador: para incluí-las, feche o AgenteTI, abra de novo e aceite o aviso do Windows."
+        Write-AgenteTIStatus -Type Info -Message "Pastas em Arquivos de Programas e ProgramData pedem Administrador: para incluí-las, $(Get-AgenteTIElevateHint)."
     }
 
     if ($usable.Count -eq 0) {

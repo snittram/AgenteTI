@@ -43,7 +43,7 @@ O AgenteTI reúne ferramentas do Windows e ações próprias. Algumas operaçõe
 3. Nas propriedades do ZIP, marque **Desbloquear** se a opção aparecer e você confiar na origem do arquivo.
 4. Extraia a pasta inteira. Uma opção é extrair para `C:\Program Files`, criando `C:\Program Files\AgenteTI`; o Windows pode pedir permissão para gravar nesse local.
 5. Abra **AgenteTI.cmd** para a interface gráfica ou **AgenteTI-Console.cmd** para o menu de terminal.
-6. Leia o pedido de permissão do Windows. A janela pode abrir sem administrador se o pedido for recusado; funções que precisarem de elevação poderão solicitá-la novamente.
+6. A janela abre sem administrador, sem o pedido de permissão do Windows. Quando uma função precisa de elevação, o AgenteTI pergunta e se reabre como administrador na mesma página; a partir daí, todas as funções seguem liberadas até a janela ser fechada. O link **Reabrir como Administrador**, no pé da barra lateral, faz o mesmo a qualquer momento.
 
 Não execute os arquivos de dentro do ZIP: o AgenteTI precisa da estrutura completa de pastas.
 
@@ -51,7 +51,7 @@ Não execute os arquivos de dentro do ZIP: o AgenteTI precisa da estrutura compl
 
 - **Permissões:** ações de limpeza, reparo, atualização e ajustes podem alterar o sistema. Mantenha seus backups e confira o que será executado; nem toda ação pode ser desfeita.
 - **Inicialização:** os lançadores `.cmd` iniciam o PowerShell com `ExecutionPolicy Bypass` para o processo e, ao abrir a janela ou o menu, removem recursivamente o bloqueio de arquivos baixados dentro da pasta do AgenteTI. Use uma pasta exclusiva para o aplicativo e confira a origem dos arquivos.
-- **Assinatura:** os scripts da versão 3.69 não estão assinados digitalmente. O Windows pode apresentar avisos ao abrir arquivos baixados.
+- **Assinatura:** os scripts da versão 1.0 não estão assinados digitalmente. O Windows pode apresentar avisos ao abrir arquivos baixados.
 - **Dados locais:** logs, relatórios e arquivos de estado ficam principalmente em `%LOCALAPPDATA%\AgenteTI`. Relatórios e logs podem conter informações do computador; confira seu conteúdo antes de compartilhá-los.
 - **Recursos online:** algumas funções acessam serviços externos, como GitHub, winget, Windows Update e serviços de rede. O monitor na bandeja e a manutenção agendada são opcionais.
 - **Backup antes de formatar:** o recurso pode guardar lista de programas, drivers, ajustes e, opcionalmente, redes Wi-Fi. Ele **não copia documentos, fotos ou outros arquivos pessoais**. Se você incluir redes Wi-Fi, as senhas são armazenadas em texto puro; proteja o backup.

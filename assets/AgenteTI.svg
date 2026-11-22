@@ -1,9 +1,85 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
   <title id="title">AgenteTI</title>
-  <desc id="desc">Ícone minimalista: bigorna branca com face azul sobre um quadrado grafite de cantos arredondados.</desc>
-  <rect x="32" y="32" width="960" height="960" rx="208" fill="#17191F"/>
-  <g transform="translate(-36 -88) scale(.9)">
-    <path fill="#5B91FF" d="M731 489 765 458Q769 454 777 454H965Q975 454 975 464V489Z"/>
-    <path fill="#F3F5F7" d="M242 506H465L469 497Q472 489 481 489H975V564Q975 575 964 575C883 577 800 613 771 671C735 744 782 775 874 795L933 860Q940 877 926 877H386Q370 877 377 861L438 795C513 778 552 752 552 709C552 666 516 633 469 633H439Q432 633 425 629L245 518Q231 508 242 506Z"/>
+  <desc id="desc">Ícone: monitor de tela azul com linha de batimento e círculo de confirmação, engrenagem prateada atrás e chave de fenda azul e preta à frente, sobre fundo transparente.</desc>
+  <defs>
+    <linearGradient id="screen" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1FA8F0"/>
+      <stop offset=".45" stop-color="#0A5BD6"/>
+      <stop offset="1" stop-color="#0638A8"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#F4F6FA"/>
+      <stop offset=".55" stop-color="#C9D0DC"/>
+      <stop offset="1" stop-color="#8F99AA"/>
+    </linearGradient>
+    <linearGradient id="gear" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F2F4F8"/>
+      <stop offset="1" stop-color="#A9B2C2"/>
+    </linearGradient>
+    <linearGradient id="badge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1D7BEA"/>
+      <stop offset="1" stop-color="#0A47B8"/>
+    </linearGradient>
+    <linearGradient id="handle" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3A3F48"/>
+      <stop offset=".5" stop-color="#1E2229"/>
+      <stop offset="1" stop-color="#0F1216"/>
+    </linearGradient>
+    <linearGradient id="grip" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5CC8FF"/>
+      <stop offset="1" stop-color="#1167E8"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Engrenagem atrás do monitor (8 dentes, centro 760,270) -->
+  <g transform="translate(760 270)" stroke="#0A2E78" stroke-width="12" stroke-linejoin="round">
+    <g fill="url(#gear)">
+      <rect x="-48" y="-232" width="96" height="90" rx="12"/>
+      <rect x="-48" y="-232" width="96" height="90" rx="12" transform="rotate(45)"/>
+      <rect x="-48" y="-232" width="96" height="90" rx="12" transform="rotate(90)"/>
+      <rect x="-48" y="-232" width="96" height="90" rx="12" transform="rotate(135)"/>
+      <rect x="-48" y="-232" width="96" height="90" rx="12" transform="rotate(180)"/>
+      <rect x="-48" y="-232" width="96" height="90" rx="12" transform="rotate(225)"/>
+      <rect x="-48" y="-232" width="96" height="90" rx="12" transform="rotate(270)"/>
+      <rect x="-48" y="-232" width="96" height="90" rx="12" transform="rotate(315)"/>
+    </g>
+    <circle r="168" fill="url(#gear)"/>
+    <circle r="96" fill="#123E9C" stroke="#1F7BFF" stroke-width="16"/>
+  </g>
+
+  <!-- Pé do monitor -->
+  <path d="M368 724H482L500 822H350Z" fill="url(#metal)" stroke="#0A2E78" stroke-width="12" stroke-linejoin="round"/>
+  <rect x="252" y="812" width="340" height="52" rx="16" fill="url(#metal)" stroke="#0A2E78" stroke-width="12"/>
+  <rect x="270" y="846" width="304" height="10" rx="5" fill="#6E7A8E"/>
+
+  <!-- Moldura e tela -->
+  <rect x="56" y="256" width="750" height="482" rx="40" fill="#1A1F29" stroke="#0A2E78" stroke-width="12"/>
+  <path d="M62 644H800V698Q800 732 766 732H96Q62 732 62 698Z" fill="url(#metal)"/>
+  <circle cx="431" cy="690" r="13" fill="#0A1A3A" stroke="#29A9FF" stroke-width="6"/>
+  <rect x="94" y="290" width="674" height="346" rx="10" fill="url(#screen)"/>
+  <path d="M94 560C260 520 520 540 768 600V626Q768 636 758 636H104Q94 636 94 626Z" fill="#0B4FC4" opacity=".55"/>
+  <path d="M104 300H520L300 620H104Z" fill="#FFFFFF" opacity=".08"/>
+
+  <!-- Linha de batimento -->
+  <polyline points="110,494 222,494 244,450 262,540 282,400 304,518 322,494 352,494" fill="none" stroke="#BFF1FF" stroke-width="7" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)"/>
+  <polyline points="570,494 610,494 630,440 650,548 668,400 690,520 708,494 760,494" fill="none" stroke="#BFF1FF" stroke-width="7" stroke-linejoin="round" stroke-linecap="round" filter="url(#glow)"/>
+
+  <!-- Círculo de confirmação -->
+  <circle cx="461" cy="465" r="118" fill="url(#badge)" stroke="#8FE6FF" stroke-width="20" filter="url(#glow)"/>
+  <path d="M403 470 446 512 525 424" fill="none" stroke="#1B3E8C" stroke-width="44" stroke-linecap="round" stroke-linejoin="round" opacity=".35" transform="translate(4 6)"/>
+  <path d="M403 470 446 512 525 424" fill="none" stroke="#FFFFFF" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Chave de fenda (diagonal, cabo no alto à direita) -->
+  <g transform="translate(838 556) rotate(42)">
+    <path d="M-16 120H16V500L6 528H-6L-16 500Z" fill="url(#metal)" stroke="#0A2E78" stroke-width="10" stroke-linejoin="round"/>
+    <rect x="-46" y="70" width="92" height="64" rx="18" fill="url(#handle)" stroke="#0A2E78" stroke-width="10"/>
+    <rect x="-70" y="-190" width="140" height="270" rx="60" fill="url(#handle)" stroke="#0A2E78" stroke-width="12"/>
+    <rect x="-16" y="-166" width="32" height="200" rx="16" fill="url(#grip)"/>
+    <rect x="28" y="-150" width="22" height="170" rx="11" fill="url(#grip)" opacity=".85"/>
+    <rect x="-50" y="-150" width="22" height="170" rx="11" fill="url(#grip)" opacity=".85"/>
   </g>
 </svg>

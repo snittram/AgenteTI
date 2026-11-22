@@ -985,7 +985,7 @@ function Invoke-AgenteTIRegistryCleanup {
         }
 
         if (-not $isAdmin) {
-            Write-AgenteTIStatus -Type Info -Message "Sem Administrador, só as entradas do seu usuário entram. Para incluir as do PC todo, feche o AgenteTI, abra de novo e aceite o aviso do Windows."
+            Write-AgenteTIStatus -Type Info -Message "Sem Administrador, só as entradas do seu usuário entram. Para incluir as do PC todo, $(Get-AgenteTIElevateHint)."
         }
 
         if ($issues.Count -eq 0) {
