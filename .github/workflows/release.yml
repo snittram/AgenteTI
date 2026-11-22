@@ -1,0 +1,85 @@
+# Publica uma release do AgenteTI quando uma tag de versão (v1.3, v1.4 ...) é enviada ao GitHub:
+#   git tag v1.3
+#   git push origin v1.3
+#
+# Gera o instalador com tools\Build-Installer.ps1 num Windows da nuvem e cria a release com o
+# AgenteTI-Setup-<versão>.exe anexado e as notas da seção da versão no CHANGELOG.md. O botão
+# "Atualizar o AgenteTI" do app usa essa release.
+name: Publicar release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Conferir a versão
+        id: version
+        shell: powershell
+        run: |
+          # A tag precisa ser a versão do Core.psm1 com "v" na frente (o app lê a versão pela tag).
+          $tag = $env:GITHUB_REF_NAME
+          $line = Select-String -LiteralPath modules\Core.psm1 -Pattern '^\$script:AgenteTIBuild\s*=\s*"([0-9]+\.[0-9]+)"' | Select-Object -First 1
+
+          if ($null -eq $line) { throw "Versão não encontrada em modules\Core.psm1." }
+
+          $version = $line.Matches[0].Groups[1].Value
+
+          if ($tag -ne "v$version") {
+            throw "A tag '$tag' não bate com a versão do Core.psm1 ($version). Use a tag v$version."
+          }
+
+          # Sem BOM: o Out-File -Encoding utf8 do PowerShell 5.1 grava um, e a chave viraria outra.
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "version=$version`n", (New-Object Text.UTF8Encoding $false))
+
+      - name: Gerar o instalador
+        shell: powershell
+        run: .\tools\Build-Installer.ps1
+
+      - name: Montar as notas da release
+        shell: powershell
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          # A seção "## <versão>" do CHANGELOG.md, até a próxima seção.
+          $lines = Get-Content -LiteralPath CHANGELOG.md -Encoding UTF8
+          $notes = @()
+          $inside = $false
+
+          foreach ($line in $lines) {
+            if ($line -match ('^## ' + [regex]::Escape($env:VERSION) + '(\s|$)')) { $inside = $true; continue }
+            if ($inside -and $line -match '^## ') { break }
+            if ($inside) { $notes += $line }
+          }
+
+          $text = ($notes -join "`n").Trim()
+          if (-not $text) { $text = "AgenteTI $env:VERSION." }
+
+          [IO.File]::WriteAllText("$PWD\release-notes.md", $text, (New-Object Text.UTF8Encoding $false))
+
+      - name: Publicar a release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $setup = "dist\AgenteTI-Setup-$env:VERSION.exe"
+          $hash = "$setup.sha256"
+
+          # Primeiro como rascunho, com os arquivos, e só depois publicada: com a imutabilidade das releases ligada,
+          # nada pode ser anexado depois da publicação.
+          gh release create $env:GITHUB_REF_NAME $setup $hash --draft --verify-tag --title "AgenteTI $env:VERSION" --notes-file release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw "Não foi possível criar a release." }
+
+          gh release edit $env:GITHUB_REF_NAME --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw "Não foi possível publicar a release." }

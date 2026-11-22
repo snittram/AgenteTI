@@ -51,6 +51,10 @@ $e=$null; [void][System.Management.Automation.Language.Parser]::ParseFile((Resol
 - A cada rodada de alterações de código, somar 1 ao número depois do ponto em `$script:AgenteTIBuild` (`modules/Core.psm1`): 1.0 → 1.1 … 1.9 → 1.10 (comparação via `[version]`), e registrar no `CHANGELOG.md` (datas DD/MM/AAAA).
 - O README cita a versão na linha sobre assinatura ("os scripts da versão X"); mantenha-a igual à do `Core.psm1`.
 
+### Publicar uma versão
+
+Depois de subir a versão no `Core.psm1`, registrar no CHANGELOG e fazer o commit: `git push`, `git tag v<versão>` e `git push origin v<versão>`. O fluxo `.github/workflows/release.yml` (Windows da nuvem) confere se a tag é igual a `v` + versão do `Core.psm1`, roda o `Build-Installer.ps1` e cria a release com o `AgenteTI-Setup-<versão>.exe` e o `.sha256` anexados e as notas da seção da versão no CHANGELOG. A release é criada como rascunho e só depois publicada, porque o repositório usa releases imutáveis (nada pode ser anexado ou trocado depois de publicar). O app lê a versão pelo nome da tag: uma tag sem número (ex.: "Atualizar") quebra o botão de atualizar.
+
 ### Instalador
 
 ```powershell
