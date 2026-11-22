@@ -43,7 +43,7 @@ O AgenteTI reúne ferramentas do Windows e ações próprias. Algumas operaçõe
 3. Nas propriedades do ZIP, marque **Desbloquear** se a opção aparecer e você confiar na origem do arquivo.
 4. Extraia a pasta inteira. Uma opção é extrair para `C:\Program Files`, criando `C:\Program Files\AgenteTI`; o Windows pode pedir permissão para gravar nesse local.
 5. Abra **AgenteTI.cmd** para a interface gráfica ou **AgenteTI-Console.cmd** para o menu de terminal.
-6. Leia o pedido de permissão do Windows. A janela pode abrir sem administrador se o pedido for recusado; funções que precisarem de elevação poderão solicitá-la novamente.
+6. A janela abre sem administrador, sem o pedido de permissão do Windows. Quando uma função precisa de elevação, o AgenteTI pergunta e se reabre como administrador na mesma página; a partir daí, todas as funções seguem liberadas até a janela ser fechada. O link **Reabrir como Administrador**, no pé da barra lateral, faz o mesmo a qualquer momento.
 
 Não execute os arquivos de dentro do ZIP: o AgenteTI precisa da estrutura completa de pastas.
 
@@ -51,16 +51,19 @@ Não execute os arquivos de dentro do ZIP: o AgenteTI precisa da estrutura compl
 
 - **Permissões:** ações de limpeza, reparo, atualização e ajustes podem alterar o sistema. Mantenha seus backups e confira o que será executado; nem toda ação pode ser desfeita.
 - **Inicialização:** os lançadores `.cmd` iniciam o PowerShell com `ExecutionPolicy Bypass` para o processo e, ao abrir a janela ou o menu, removem recursivamente o bloqueio de arquivos baixados dentro da pasta do AgenteTI. Use uma pasta exclusiva para o aplicativo e confira a origem dos arquivos.
-- **Assinatura:** os scripts da versão 3.69 não estão assinados digitalmente. O Windows pode apresentar avisos ao abrir arquivos baixados.
+- **Assinatura:** os scripts da versão 1.1 não estão assinados digitalmente. O Windows pode apresentar avisos ao abrir arquivos baixados.
 - **Dados locais:** logs, relatórios e arquivos de estado ficam principalmente em `%LOCALAPPDATA%\AgenteTI`. Relatórios e logs podem conter informações do computador; confira seu conteúdo antes de compartilhá-los.
 - **Recursos online:** algumas funções acessam serviços externos, como GitHub, winget, Windows Update e serviços de rede. O monitor na bandeja e a manutenção agendada são opcionais.
 - **Backup antes de formatar:** o recurso pode guardar lista de programas, drivers, ajustes e, opcionalmente, redes Wi-Fi. Ele **não copia documentos, fotos ou outros arquivos pessoais**. Se você incluir redes Wi-Fi, as senhas são armazenadas em texto puro; proteja o backup.
 
 ## Atualizar o AgenteTI
 
-Em **Sobre o AgenteTI > Verificar nova versão**, o aplicativo consulta a release mais recente e pode baixar o ZIP, conferindo seu SHA-256. A substituição dos arquivos é manual.
+Em **Sobre o AgenteTI > Atualizar o AgenteTI**, o aplicativo consulta a release mais recente no GitHub.
 
-Para atualizar uma cópia existente, feche o AgenteTI e o monitor na bandeja, se estiver aberto. Extraia a nova versão em outra pasta e copie o conteúdo da pasta `AgenteTI` extraída para a pasta da instalação anterior, substituindo os arquivos. Mantenha a estrutura de pastas completa.
+- **Instalado pelo instalador** (`AgenteTI-Setup-<versão>.exe`): o AgenteTI baixa o instalador da nova versão, confere o SHA-256, pede a permissão do Windows, fecha, instala por cima e abre de novo. Não é preciso desinstalar: atalhos e dados são mantidos.
+- **Cópia extraída do ZIP:** o AgenteTI baixa o ZIP conferindo o SHA-256, e a substituição dos arquivos é manual. Feche o AgenteTI e o monitor na bandeja, se estiver aberto, extraia a nova versão em outra pasta e copie o conteúdo da pasta `AgenteTI` extraída para a pasta da instalação anterior, substituindo os arquivos. Mantenha a estrutura de pastas completa.
+
+Também é possível baixar o instalador da nova versão pela página de releases e executá-lo: ele atualiza a instalação existente sem desinstalar.
 
 Os dados locais ficam em `%LOCALAPPDATA%\AgenteTI`; não apague essa pasta se quiser preservar logs, histórico e backups. Se você mover a pasta do programa, confira seus atalhos e o agendamento, caso estejam configurados.
 

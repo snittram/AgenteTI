@@ -8,13 +8,12 @@
     do AgenteTI.Console.ps1. Cada ação roda num runspace separado com um host próprio (modules\GuiHost.psm1):
     a saída aparece no painel e as perguntas viram botões, listas de marcação ou caixa de texto.
 
-    Abra pelo AgenteTI.cmd. A janela abre sempre como Administrador e em modo STA (exigido pelo WPF): sem um deles, o
-    script se reabre pedindo a permissão ao Windows. Se a pessoa recusa o aviso do Windows, a janela abre assim mesmo,
-    sem Administrador, e se reabre elevada, na mesma página, quando uma ação exige.
+    Abra pelo AgenteTI.cmd. A janela abre sem Administrador (sem o aviso do Windows) e em modo STA (exigido pelo WPF;
+    sem ele, o script se reabre em STA). Quando uma ação exige Administrador, a janela pergunta e se reabre elevada, na
+    mesma página, já rodando a ação.
 
 .PARAMETER Relaunched
-    Uso interno: indica que esta é a segunda execução. Ela não pede a elevação de novo, o que evita um laço caso a
-    elevação ou o STA falhem.
+    Uso interno: indica que esta é a segunda execução. Ela não se reabre de novo, o que evita um laço caso o STA falhe.
 
 .PARAMETER Handover
     Uso interno: a execução anterior ainda segura a trava da janela e fecha logo depois de abrir esta (a janela que
@@ -57,10 +56,10 @@ function Show-GuiStartupMessage {
 }
 
 # --- Administrador e STA (o WPF exige STA) -------------------------------------------------------------
-# A janela abre sempre como Administrador. Sem ele, o script se reabre pedindo a permissão (o aviso do Windows). Se a
-# pessoa recusa, a janela abre assim mesmo, sem Administrador: Diagnóstico e as telas de leitura funcionam, e cada ação
-# que altera o sistema oferece reabrir elevada (Request-GuiAdministrator). A segunda execução (-Relaunched) não pede de
-# novo, para não entrar em laço se o Windows não elevar.
+# A janela abre sem Administrador, para não mostrar o aviso do Windows a cada abertura: Diagnóstico e as telas de
+# leitura funcionam assim, e cada ação que altera o sistema (RequiresAdmin na navegação) oferece reabrir elevada
+# (Request-GuiAdministrator). Aberta já elevada (por exemplo com "Executar como administrador"), continua elevada.
+# Sem STA, o script se reabre em STA; a segunda execução (-Relaunched) não se reabre de novo, para não entrar em laço.
 function Get-GuiLaunchScriptPath {
     # O caminho deste script para a execução elevada. Uma unidade de rede mapeada (Z:) só existe na sessão sem elevação:
     # a execução elevada não a enxerga e terminaria sem janela, então o caminho vai como \\servidor\pasta.
@@ -132,21 +131,11 @@ catch {
     # Nenhuma janela aberta.
 }
 
-if (-not $windowOpen -and ((-not $isAdmin -and -not $Relaunched) -or -not $isSta)) {
-    if ($Relaunched) {
-        Show-GuiStartupMessage -Text "Não foi possível abrir a janela do AgenteTI. Abra o AgenteTI de novo."
-        exit 1
-    }
+if (-not $windowOpen -and -not $isSta) {
+    if (-not $Relaunched -and (Start-GuiRelaunch -Page $Page -Action $Action)) { exit }
 
-    if (-not $isAdmin -and (Start-GuiRelaunch -Page $Page -Action $Action -Elevated)) { exit }
-
-    # Aviso do Windows recusado (ou elevação bloqueada): segue sem Administrador, em STA.
-    if (-not $isSta) {
-        if (Start-GuiRelaunch -Page $Page -Action $Action) { exit }
-
-        Show-GuiStartupMessage -Text "Não foi possível abrir a janela do AgenteTI. Abra o AgenteTI de novo."
-        exit 1
-    }
+    Show-GuiStartupMessage -Text "Não foi possível abrir a janela do AgenteTI. Abra o AgenteTI de novo."
+    exit 1
 }
 
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
@@ -191,11 +180,10 @@ try {
     if (-not (Enter-AgenteTIWindowLock -WaitMilliseconds $(if ($Handover) { 15000 } else { 0 }))) {
         if (Send-AgenteTIWindowRequest -Action $Action) { exit 0 }
     }
-    elseif ($windowOpen -and ((-not $isAdmin -and -not $Relaunched) -or -not $isSta)) {
-        # A janela que estava aberta fechou enquanto esta carregava: faz o que a partida faria (pedir o Administrador e,
-        # recusado, reabrir em STA). A nova execução espera esta terminar para ficar com a trava.
-        if (-not $isAdmin -and -not $Relaunched -and (Start-GuiRelaunch -Page $Page -Action $Action -Elevated -Handover)) { exit 0 }
-        if (-not $isSta -and (Start-GuiRelaunch -Page $Page -Action $Action -Handover)) { exit 0 }
+    elseif ($windowOpen -and -not $isSta) {
+        # A janela que estava aberta fechou enquanto esta carregava: faz o que a partida faria (reabrir em STA). A nova
+        # execução espera esta terminar para ficar com a trava.
+        if (-not $Relaunched -and (Start-GuiRelaunch -Page $Page -Action $Action -Handover)) { exit 0 }
     }
 
     if (-not (Test-Path -LiteralPath $xamlPath)) {
@@ -2536,8 +2524,7 @@ function Get-GuiBasePage {
 }
 
 function Request-GuiAdministrator {
-    # A janela fica sem Administrador quando o aviso do Windows foi recusado ao abrir (ou o Windows não elevou). Quando uma
-    # ação exige, oferece reabrir elevada, na mesma página e já rodando a ação pedida (Action = Id da navegação). Devolve
+    # A janela abre sem Administrador. Quando uma ação exige, oferece reabrir elevada, na mesma página e já rodando a ação pedida (Action = Id da navegação). Devolve
     # verdadeiro se a ação pode seguir agora (já é Administrador).
     param (
         [Parameter(Mandatory)][string]$Reason,
@@ -5387,7 +5374,25 @@ if ($isAdmin) {
     $window.FindName("AdminText").Text = "Administrador"
 }
 else {
-    $window.FindName("AdminText").Text = "Sem Administrador · o AgenteTI pede de novo quando uma ação precisar"
+    # A janela abre sem Administrador. As ações marcadas pedem sozinhas; o link serve para as que só alcançam mais com
+    # ele (pastas do sistema na limpeza, entradas do PC todo no registro), cujas mensagens apontam para cá.
+    $adminText = $window.FindName("AdminText")
+    $adminText.Text = ""
+    [void]$adminText.Inlines.Add((New-Object System.Windows.Documents.Run "Sem Administrador · "))
+
+    $adminLink = New-Object System.Windows.Documents.Hyperlink
+    [void]$adminLink.Inlines.Add((New-Object System.Windows.Documents.Run "Reabrir como Administrador"))
+    $adminLink.Style = $window.FindResource("SummaryLink")
+    $adminLink.ToolTip = "Reabre o AgenteTI como Administrador, na mesma página. O Windows pede a permissão."
+    $adminLink.Add_Click({
+        if ($script:Running) {
+            [void](Show-GuiMessage -Text "Já existe uma ação em andamento ($($runTitle.Text)). Aguarde terminar ou use Parar antes de reabrir o AgenteTI." -Icon Information)
+            return
+        }
+
+        [void](Request-GuiAdministrator -Reason "Como Administrador, o AgenteTI também alcança as partes do sistema protegidas pelo Windows.")
+    })
+    [void]$adminText.Inlines.Add($adminLink)
 }
 
 Restore-GuiWindowBounds

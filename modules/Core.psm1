@@ -1,7 +1,7 @@
 ﻿# Núcleo: ambiente, sessão, registro, log, formatação e execução de programas nativos.
 # Nada aqui desenha cabeçalhos ou faz perguntas; isso fica em Console.psm1.
 
-$script:AgenteTIBuild = "3.69"
+$script:AgenteTIBuild = "1.1"
 
 # A trava dos arquivos de estado (Invoke-AgenteTIStateLock): uma por sessão do Windows.
 $script:AgenteTIStateLockName = "Local\AgenteTI.State"

@@ -1,9 +1,14 @@
-﻿# Nova versão do AgenteTI: consulta a última versão publicada no GitHub, baixa o AgenteTI.zip para a pasta Downloads e
-# confere o SHA-256 do arquivo antes de dizer que ele está pronto.
+﻿# Nova versão do AgenteTI: consulta a última versão publicada no GitHub e confere o SHA-256 de tudo o que baixa.
 #
-# O AgenteTI nunca troca os próprios arquivos: ele só baixa e confere. Instalar é copiar o conteúdo do zip para a
-# pasta atual, com a janela fechada. O hash vem do "digest" que o GitHub publica para cada arquivo de um release; sem
-# ele, nada é baixado (um arquivo que não pode ser conferido não deve virar instalação).
+# Instalado pelo AgenteTI-Setup (a pasta tem o Desinstalar.exe): baixa o AgenteTI-Setup-<versão>.exe do release e o
+# executa com /S /RUN /CLOSE=<este processo> /D=<pasta atual>; o instalador fecha o AgenteTI, grava por cima e o reabre.
+# O AgenteTI nunca troca os próprios arquivos: quem troca é o instalador conferido.
+#
+# Cópia extraída do zip: baixa o AgenteTI.zip para a pasta Downloads; instalar é copiar o conteúdo do zip para a pasta
+# atual, com a janela fechada.
+#
+# O hash vem do "digest" que o GitHub publica para cada arquivo de um release; sem ele, nada é baixado (um arquivo que
+# não pode ser conferido não deve virar instalação).
 
 
 # ---------------------------------------------------------------------------
@@ -196,8 +201,9 @@ function ConvertTo-AgenteTIWebErrorText {
 function Get-AgenteTILatestRelease {
     <#
     Lê a última versão publicada (não conta rascunho nem pré-lançamento). Devolve Tag, Version, PageUrl, Published,
-    Notes e Asset (Url, Size, Digest; $null quando o release não tem o AgenteTI.zip). Lança erro quando o GitHub não
-    responde ou a resposta não faz sentido; quem chama decide como avisar.
+    Notes, Asset (o AgenteTI.zip) e SetupAsset (o AgenteTI-Setup-<versão>.exe), cada um com Url, Size e Digest, ou
+    $null quando o release não traz o arquivo. Lança erro quando o GitHub não responde ou a resposta não faz sentido;
+    quem chama decide como avisar.
     #>
     $uri = "https://api.github.com/repos/$(Get-AgenteTIRepository)/releases/latest"
 
@@ -218,16 +224,23 @@ function Get-AgenteTILatestRelease {
     }
 
     $asset = $null
+    $setupAsset = $null
 
     foreach ($candidate in @(Get-AgenteTIJsonValue -Object $release -Name "assets" -Default @())) {
-        if ([string](Get-AgenteTIJsonValue -Object $candidate -Name "name" -Default "") -ieq "AgenteTI.zip") {
-            $asset = [PSCustomObject]@{
-                Url    = [string](Get-AgenteTIJsonValue -Object $candidate -Name "browser_download_url" -Default "")
-                Size   = [int64](Get-AgenteTIJsonValue -Object $candidate -Name "size" -Default 0)
-                Digest = [string](Get-AgenteTIJsonValue -Object $candidate -Name "digest" -Default "")
-            }
-            break
+        $name = [string](Get-AgenteTIJsonValue -Object $candidate -Name "name" -Default "")
+        $isZip = ($name -ieq "AgenteTI.zip")
+        $isSetup = ($name -imatch '^AgenteTI-Setup-[0-9][0-9.]*\.exe$')
+
+        if (-not $isZip -and -not $isSetup) { continue }
+
+        $info = [PSCustomObject]@{
+            Url    = [string](Get-AgenteTIJsonValue -Object $candidate -Name "browser_download_url" -Default "")
+            Size   = [int64](Get-AgenteTIJsonValue -Object $candidate -Name "size" -Default 0)
+            Digest = [string](Get-AgenteTIJsonValue -Object $candidate -Name "digest" -Default "")
         }
+
+        if ($isZip -and $null -eq $asset) { $asset = $info }
+        if ($isSetup -and $null -eq $setupAsset) { $setupAsset = $info }
     }
 
     # A data do GitHub é ISO 8601 em UTC; vira a hora local (uma publicação às 01:30 UTC do dia 30 ainda é dia 29 no
@@ -241,12 +254,13 @@ function Get-AgenteTILatestRelease {
     }
 
     return [PSCustomObject]@{
-        Tag       = $tag
-        Version   = $version
-        PageUrl   = [string](Get-AgenteTIJsonValue -Object $release -Name "html_url" -Default "")
-        Published = $published
-        Notes     = [string](Get-AgenteTIJsonValue -Object $release -Name "body" -Default "")
-        Asset     = $asset
+        Tag        = $tag
+        Version    = $version
+        PageUrl    = [string](Get-AgenteTIJsonValue -Object $release -Name "html_url" -Default "")
+        Published  = $published
+        Notes      = [string](Get-AgenteTIJsonValue -Object $release -Name "body" -Default "")
+        Asset      = $asset
+        SetupAsset = $setupAsset
     }
 }
 
@@ -316,23 +330,30 @@ function Get-AgenteTIExpectedHash {
     #>
     param (
         [Parameter(Mandatory)]
-        $Release
+        $Release,
+
+        # Zip = AgenteTI.zip (Asset); Setup = AgenteTI-Setup-<versão>.exe (SetupAsset).
+        [ValidateSet("Zip", "Setup")]
+        [string]$Kind = "Zip"
     )
 
-    $asset = Get-AgenteTIJsonValue -Object $Release -Name "Asset"
+    $property = $(if ($Kind -eq "Setup") { "SetupAsset" } else { "Asset" })
+    $label = $(if ($Kind -eq "Setup") { "o instalador" } else { "o AgenteTI.zip" })
+
+    $asset = Get-AgenteTIJsonValue -Object $Release -Name $property
     if ($null -eq $asset) { return "" }
 
     $digest = [string](Get-AgenteTIJsonValue -Object $asset -Name "Digest" -Default "")
     if (-not $digest) { return "" }
 
     if ($digest -notmatch "(?i)^sha256:") {
-        throw "O GitHub publicou um hash que não é SHA-256 para o AgenteTI.zip."
+        throw "O GitHub publicou um hash que não é SHA-256 para $label."
     }
 
     $hash = $digest.Substring(7).Trim()
 
     if ($hash -notmatch '^[0-9a-fA-F]{64}$') {
-        throw "O hash publicado pelo GitHub para o AgenteTI.zip não é um SHA-256 reconhecível."
+        throw "O hash publicado pelo GitHub para $label não é um SHA-256 reconhecível."
     }
 
     return $hash.ToLowerInvariant()
@@ -341,20 +362,27 @@ function Get-AgenteTIExpectedHash {
 
 function Save-AgenteTIRelease {
     <#
-    Baixa o AgenteTI.zip do release para a pasta de destino com um nome que o AgenteTI escolhe (AgenteTI-<versão>.zip)
-    e confere tamanho e SHA-256. Integrity: Verified (hash igual; Reused quando o arquivo já estava lá, conferido),
-    Mismatch (o download é apagado), NoHash (o release não publica hash; nada é baixado) ou Failed (Error leva o
-    motivo). O download parcial (.download) nunca fica na pasta, nem quando a ação é interrompida.
+    Baixa o arquivo do release para a pasta de destino com um nome que o AgenteTI escolhe (AgenteTI-<versão>.zip ou,
+    com -Kind Setup, AgenteTI-Setup-<versão>.exe) e confere tamanho e SHA-256. Integrity: Verified (hash igual; Reused
+    quando o arquivo já estava lá, conferido), Mismatch (o download é apagado), NoHash (o release não publica hash; nada
+    é baixado) ou Failed (Error leva o motivo). O download parcial (.download) nunca fica na pasta, nem quando a ação é
+    interrompida.
     #>
     param (
         [Parameter(Mandatory)]
         $Release,
 
         [Parameter(Mandatory)]
-        [string]$DestinationFolder
+        [string]$DestinationFolder,
+
+        [ValidateSet("Zip", "Setup")]
+        [string]$Kind = "Zip"
     )
 
-    $asset = Get-AgenteTIJsonValue -Object $Release -Name "Asset"
+    $isSetup = ($Kind -eq "Setup")
+    $asset = Get-AgenteTIJsonValue -Object $Release -Name $(if ($isSetup) { "SetupAsset" } else { "Asset" })
+    $fileLabel = $(if ($isSetup) { "um instalador do AgenteTI" } else { "um AgenteTI.zip" })
+    $namePattern = $(if ($isSetup) { "AgenteTI-Setup-{0}{1}.exe" } else { "AgenteTI-{0}{1}.zip" })
 
     $result = [PSCustomObject]@{
         Integrity = "Failed"
@@ -366,12 +394,12 @@ function Save-AgenteTIRelease {
     }
 
     if ($null -eq $asset -or -not (Test-AgenteTIReleaseDownloadUrl -Url ([string](Get-AgenteTIJsonValue -Object $asset -Name "Url" -Default "")))) {
-        $result.Error = "o release não tem um AgenteTI.zip num endereço confiável do repositório"
+        $result.Error = "o release não tem $fileLabel num endereço confiável do repositório"
         return $result
     }
 
     try {
-        $result.Expected = Get-AgenteTIExpectedHash -Release $Release
+        $result.Expected = Get-AgenteTIExpectedHash -Release $Release -Kind $Kind
     }
     catch {
         $result.Error = $_.Exception.Message
@@ -383,7 +411,8 @@ function Save-AgenteTIRelease {
         return $result
     }
 
-    $finalPath = Join-Path $DestinationFolder ("AgenteTI-{0}.zip" -f (Format-AgenteTIVersion -Version $Release.Version))
+    $versionText = Format-AgenteTIVersion -Version $Release.Version
+    $finalPath = Join-Path $DestinationFolder ($namePattern -f $versionText, "")
     $partialPath = "$finalPath.download"
 
     # A mesma versão já baixada e conferida não é baixada de novo.
@@ -451,12 +480,12 @@ function Save-AgenteTIRelease {
                 $moved = $true
             }
             catch {
-                $target = Join-Path $DestinationFolder ("AgenteTI-{0} ({1}).zip" -f (Format-AgenteTIVersion -Version $Release.Version), ($attempt + 1))
+                $target = Join-Path $DestinationFolder ($namePattern -f $versionText, " ($($attempt + 1))")
             }
         }
 
         if (-not $moved) {
-            throw "o arquivo $(Split-Path -Leaf $finalPath) já existe na pasta Downloads e está em uso; feche o programa que o abriu e tente de novo"
+            throw "o arquivo $(Split-Path -Leaf $finalPath) já existe em $DestinationFolder e está em uso; feche o programa que o abriu e tente de novo"
         }
 
         $result.Path = $target
@@ -604,8 +633,99 @@ function Show-AgenteTIDownloadedRelease {
 }
 
 
+function Test-AgenteTIInstalledCopy {
+    # Verdadeiro quando esta cópia foi instalada pelo AgenteTI-Setup (ele deixa o Desinstalar.exe na pasta). Só essas
+    # são atualizadas pelo instalador; uma cópia extraída do zip continua com a cópia manual.
+    return (Test-Path -LiteralPath (Join-Path (Get-AgenteTIAppRoot) "Desinstalar.exe") -PathType Leaf)
+}
+
+
+function Invoke-AgenteTIInstallerUpdate {
+    <#
+    Baixa o instalador da versão nova para %LOCALAPPDATA%\AgenteTI\updates, confere o SHA-256 e o executa por cima da
+    instalação atual. O instalador pede a permissão do Windows, fecha este AgenteTI (/CLOSE com o número deste
+    processo), grava os arquivos e, na janela, abre o AgenteTI de novo (/RUN). Devolve o resultado da ação.
+    #>
+    param (
+        [Parameter(Mandatory)]$Release,
+        [Parameter(Mandatory)][string]$Published,
+        [Parameter(Mandatory)][string]$PageUrl,
+        [Parameter(Mandatory)][string]$Title
+    )
+
+    $gui = Test-AgenteTIGuiMode
+    $appRoot = Get-AgenteTIAppRoot
+
+    Write-AgenteTISection -Title "Atualizar"
+
+    $reopen = $(if ($gui) { "e abre de novo" } else { "; depois, abra o AgenteTI de novo" })
+
+    if (-not (Confirm-AgenteTIAction -Message "Atualizar agora para a $($Published)? O AgenteTI fecha, instala a versão nova $reopen." -DefaultKey S)) {
+        Write-AgenteTIStatus -Type Info -Message "Nada foi alterado."
+        return (New-AgenteTIResult -Kind Skipped -Detail "a $Published está disponível, mas a atualização foi recusada" -Title $Title)
+    }
+
+    $folder = Join-Path (Get-AgenteTIDataPath) "updates"
+
+    # Instaladores de versões anteriores não servem mais.
+    foreach ($old in @(Get-ChildItem -LiteralPath $folder -Filter "AgenteTI-Setup-*.exe" -File -ErrorAction SilentlyContinue)) {
+        if ($old.Name -notlike "AgenteTI-Setup-$(Format-AgenteTIVersion -Version $Release.Version)*") {
+            Remove-Item -LiteralPath $old.FullName -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    Write-AgenteTIStatus -Type Running -Notice -Message "Baixando e conferindo o instalador..."
+    $saved = Save-AgenteTIRelease -Release $Release -DestinationFolder $folder -Kind Setup
+
+    if ($saved.Integrity -eq "NoHash") {
+        Write-AgenteTIStatus -Type Error -Message "Esta versão não publica um SHA-256 para conferir o instalador, então o AgenteTI não o baixou. Baixe pela página do projeto: $PageUrl"
+        return (New-AgenteTIResult -Kind Failed -Detail "a $Published não publica um hash para conferir; nada foi baixado" -Title $Title)
+    }
+
+    if ($saved.Integrity -eq "Mismatch") {
+        Write-AgenteTIStatus -Type Error -Message "O instalador baixado chegou diferente do publicado (corrompido no caminho ou alterado) e foi apagado. Tente de novo; se repetir, baixe pela página do projeto: $PageUrl"
+        return (New-AgenteTIResult -Kind Failed -Detail "o instalador baixado não confere com o publicado e foi apagado" -Title $Title)
+    }
+
+    if ($saved.Integrity -ne "Verified") {
+        Write-AgenteTIStatus -Type Error -Message "Não foi possível baixar o instalador: $($saved.Error)."
+        return (New-AgenteTIResult -Kind Failed -Detail $saved.Error -Title $Title)
+    }
+
+    Write-AgenteTIStatus -Type Success -Message "O instalador da $Published foi conferido: é idêntico ao publicado no GitHub (SHA-256)."
+
+    # /D= vai por último: o instalador lê o resto da linha como a pasta, com espaços.
+    $arguments = "/S $(if ($gui) { '/RUN ' })/CLOSE=$PID /D=$appRoot"
+
+    try {
+        Start-Process -FilePath $saved.Path -ArgumentList $arguments -ErrorAction Stop
+    }
+    catch {
+        $canceled = $false
+
+        for ($current = $_.Exception; $null -ne $current; $current = $current.InnerException) {
+            if ($current -is [System.ComponentModel.Win32Exception] -and $current.NativeErrorCode -eq 1223) { $canceled = $true }
+        }
+
+        if ($canceled) {
+            Write-AgenteTIStatus -Type Info -Message "A permissão do Windows foi recusada; nada foi alterado."
+            return (New-AgenteTIResult -Kind Skipped -Detail "atualização cancelada: a permissão do Windows foi recusada" -Title $Title)
+        }
+
+        Write-AgenteTIStatus -Type Error -Message "Não foi possível iniciar o instalador: $($_.Exception.Message)"
+        return (New-AgenteTIResult -Kind Failed -Detail "não foi possível iniciar o instalador" -Title $Title)
+    }
+
+    $next = $(if ($gui) { "O AgenteTI fecha em instantes e abre de novo já atualizado." } else { "O AgenteTI fecha em instantes; abra de novo quando a instalação terminar." })
+    Write-AgenteTIStatus -Type Success -Message "Instalando a $Published. $next"
+
+    return (Set-AgenteTIResultView -Result (New-AgenteTIResult -Kind Ok -Detail "instalando a $Published" -Title $Title) `
+            -Headline "Atualizando para a $Published" -Note $next)
+}
+
+
 function Invoke-AgenteTIUpdateFlow {
-    # O roteiro de Verificar nova versão. Devolve o resultado; quem chama abre e fecha a ação uma vez só.
+    # O roteiro de Atualizar o AgenteTI. Devolve o resultado; quem chama abre e fecha a ação uma vez só.
     param ([Parameter(Mandatory)][string]$Title)
 
     Write-Host "  Consulta o GitHub para ver a última versão publicada." -ForegroundColor DarkGray
@@ -667,8 +787,14 @@ function Invoke-AgenteTIUpdateFlow {
         if ($notes.Truncated) { Write-AgenteTIStatus -Type Info -Notice -Message "Notas completas: $pageUrl" }
     }
 
+    # Instalado pelo AgenteTI-Setup: o instalador novo atualiza por cima, sem desinstalar.
+    if ((Test-AgenteTIInstalledCopy) -and $null -ne $release.SetupAsset) {
+        return (Invoke-AgenteTIInstallerUpdate -Release $release -Published $published -PageUrl $pageUrl -Title $Title)
+    }
+
     if ($null -eq $release.Asset) {
-        Write-AgenteTIStatus -Type Warning -Message "Esse release não tem o AgenteTI.zip anexado; baixe pela página do projeto: $pageUrl"
+        $what = $(if ($null -ne $release.SetupAsset) { "baixe o instalador pela página do projeto e execute-o: $pageUrl" } else { "baixe pela página do projeto: $pageUrl" })
+        Write-AgenteTIStatus -Type Warning -Message "Esse release não tem o AgenteTI.zip anexado; $what"
         return (New-AgenteTIResult -Kind Warning -Detail "a $published está publicada, mas sem o AgenteTI.zip" -Title $Title)
     }
 
@@ -734,7 +860,7 @@ function Invoke-AgenteTIUpdateFlow {
 
 
 function Invoke-AgenteTIUpdateCheck {
-    $title = "Verificar nova versão"
+    $title = "Atualizar o AgenteTI"
 
     Enter-AgenteTIAction -Title $title
 

@@ -3544,7 +3544,7 @@ function Export-AgenteTITweaks {
                 -Note "Salvo em $where. No outro PC, use Ajustes do Windows > Importar ajustes."
             Write-Host ""
 
-            # Como em Verificar nova versão: a pasta abre com o arquivo já selecionado, pronto para copiar.
+            # Como em Atualizar o AgenteTI (cópia do zip): a pasta abre com o arquivo já selecionado, pronto para copiar.
             if (Confirm-AgenteTIAction -Message "Mostrar o arquivo na pasta?" -DefaultKey S) {
                 try {
                     Start-Process -FilePath "explorer.exe" -ArgumentList "/select,`"$path`"" -ErrorAction Stop

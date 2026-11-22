@@ -1170,12 +1170,23 @@ function Format-AgenteTIKeyHint {
 
 function Get-AgenteTIUnelevatedHint {
     # Como abrir o AgenteTI sem Administrador, com a conta de quem usa o PC (quando ele está aberto com a conta de outro
-    # Administrador). Na janela, recusar o aviso do Windows abre a janela assim mesmo; no menu de texto, recusar fecha.
+    # Administrador). A janela abre sem Administrador; o menu de texto, sempre com ele.
     if (Test-AgenteTIGuiMode) {
-        return "feche o AgenteTI, abra de novo e responda Não ao aviso do Windows: a janela abre sem Administrador"
+        return "feche o AgenteTI e abra de novo pelo atalho: a janela abre sem Administrador"
     }
 
-    return "abra a janela do AgenteTI (pelo atalho ou pelo AgenteTI.cmd) e responda Não ao aviso do Windows: ela abre sem Administrador"
+    return "abra a janela do AgenteTI (pelo atalho ou pelo AgenteTI.cmd): ela abre sem Administrador"
+}
+
+
+function Get-AgenteTIElevateHint {
+    # Como passar a usar o AgenteTI como Administrador. A janela tem o link no pé da barra lateral; o menu de texto abre
+    # sempre pedindo a permissão, e sem ela só resta abrir de novo.
+    if (Test-AgenteTIGuiMode) {
+        return "use Reabrir como Administrador, no pé da barra lateral"
+    }
+
+    return "feche o AgenteTI, abra de novo e aceite o aviso do Windows"
 }
 
 

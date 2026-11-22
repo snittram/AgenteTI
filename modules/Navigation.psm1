@@ -15,8 +15,7 @@ $script:AgenteTINavigation = $null
 
 function New-AgenteTINavItem {
     # Kind = Action (executa uma função do AgenteTI) ou Shortcut (abre uma janela do Windows).
-    # RequiresAdmin: a ação só funciona elevada (a janela aberta sem Administrador, quando o aviso do Windows foi recusado,
-    # pede de novo antes).
+    # RequiresAdmin: a ação só funciona elevada (a janela, que abre sem Administrador, pede a permissão antes de rodá-la).
     # Keywords: palavras extras que a busca reconhece (sinônimos, nomes de ferramentas, sintomas).
     # Group: a seção da página em que o item aparece ("Liberar espaço", "Ferramentas do Windows"); os itens de uma seção
     # ficam juntos na tabela, e a janela e o console mostram o nome da seção antes deles.
@@ -397,9 +396,9 @@ function Get-AgenteTINavigation {
         (New-AgenteTINavItem -Id "app.about" -Label "Versão e pastas" -Group "Versão e dados" `
             -Keywords "build powershell" `
             -Description "Qual versão está aberta, onde ela está instalada e onde ficam os logs e relatórios" -Command "Show-AgenteTIAbout"),
-        (New-AgenteTINavItem -Id "app.update" -Label "Verificar nova versão" -Group "Versão e dados" `
-            -Keywords "atualizar atualização baixar release github" `
-            -Description "Vê se há uma versão mais nova do AgenteTI e baixa o zip conferindo o SHA-256" -Command "Invoke-AgenteTIUpdateCheck"),
+        (New-AgenteTINavItem -Id "app.update" -Label "Atualizar o AgenteTI" -Group "Versão e dados" -Accent `
+            -Keywords "atualizar atualização nova versão verificar baixar instalar release github" `
+            -Description "Vê se há uma versão mais nova e, se houver, instala por cima e reabre o AgenteTI, sem desinstalar" -Command "Invoke-AgenteTIUpdateCheck"),
         (New-AgenteTINavItem -Id "app.catalog" -Label "Conferir dados online" -Group "Versão e dados" `
             -Keywords "catálogo lista essenciais datas suporte" `
             -Description "Confere na internet a lista de essenciais e as datas de suporte do Windows mais recentes" -Command "Update-AgenteTIOnlineData"),
