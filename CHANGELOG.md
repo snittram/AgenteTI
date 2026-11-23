@@ -3,6 +3,10 @@
 Numeração: começa em 1.0 e sobe +1 depois do ponto a cada alteração (1.0 → 1.1 → 1.2 … 1.9 → 1.10 → 1.11).
 A versão fica em `modules\Core.psm1` (`$script:AgenteTIBuild`).
 
+## 1.4 (22/11/2026)
+
+- Ajustes do Windows: nova ação **Limite de anexos do Outlook**, a primeira da página. Mostra o limite de agora e grava o tamanho máximo de anexo do Outlook clássico (`MaximumAttachmentSize`, em KB, em `HKCU\Software\Microsoft\Office\<versão>\Outlook\Preferences`): 25, 50, 100 ou 150 MB, outro valor de 1 a 2048 MB, ou a volta ao padrão do Outlook (20 MB). Avisa que o servidor de e-mail tem limite próprio e que o Outlook precisa ser reaberto.
+
 ## 1.3 (22/11/2026)
 
 - Janela maximizada: os cartões não ficam mais trocando de lugar sem parar (alternavam entre 4 e 3 por linha quando a barra de rolagem aparecia e sumia). A largura da grade agora reserva sempre o espaço da barra de rolagem.

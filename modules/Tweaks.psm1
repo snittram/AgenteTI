@@ -4477,4 +4477,176 @@ function Set-AgenteTIKeyboardLanguageHotkey {
 }
 
 
+# ---------------------------------------------------------------------------
+# Outlook clássico: limite de tamanho dos anexos (HKCU\Software\Microsoft\Office\<versão>\Outlook\Preferences,
+# DWORD MaximumAttachmentSize, em KB). Sem o valor, o Outlook usa o padrão dele (20 MB); 0 tira o limite do Outlook.
+# O servidor de e-mail (Exchange, Microsoft 365, Gmail) continua com o limite próprio e pode recusar mensagens maiores.
+# ---------------------------------------------------------------------------
+
+$script:AgenteTIOutlookDefaultLimitKB = 20480
+
+
+function Get-AgenteTIOutlookAttachmentOptions {
+    # As opções da lista: os tamanhos mais pedidos, em MB (o registro guarda em KB: MB × 1024).
+    return @(
+        [PSCustomObject]@{ Key = "1"; Label = "25 MB"; Megabytes = 25; Description = "25.600 KB; o mesmo limite do Gmail" }
+        [PSCustomObject]@{ Key = "2"; Label = "50 MB"; Megabytes = 50; Description = "51.200 KB" }
+        [PSCustomObject]@{ Key = "3"; Label = "100 MB"; Megabytes = 100; Description = "102.400 KB" }
+        [PSCustomObject]@{ Key = "4"; Label = "150 MB"; Megabytes = 150; Description = "153.600 KB; o máximo que o Microsoft 365 permite configurar" }
+    )
+}
+
+
+function Format-AgenteTIOutlookLimit {
+    # O limite em texto: "25 MB (25.600 KB)", "sem limite do Outlook" ou o padrão.
+    param ([AllowNull()]$KiloBytes)
+
+    if ($null -eq $KiloBytes) {
+        return "padrão do Outlook (20 MB)"
+    }
+
+    $kb = [int64]$KiloBytes
+    if ($kb -le 0) { return "sem limite do Outlook (vale só o do servidor)" }
+
+    $culture = [System.Globalization.CultureInfo]::GetCultureInfo("pt-BR")
+    $mb = [math]::Round($kb / 1024, 1)
+    return "$($mb.ToString('0.#', $culture)) MB ($($kb.ToString('N0', $culture)) KB)"
+}
+
+
+function Get-AgenteTIOutlookPreferenceKeys {
+    # As chaves Preferences do Outlook deste usuário: uma por versão do Office que já abriu o Outlook neste perfil
+    # (16.0 = Microsoft 365, 2016, 2019, 2021 e 2024; 15.0 = 2013; 14.0 = 2010). Sem nenhuma, a do 16.0, a das versões
+    # atuais (vale quando o Outlook abrir pela primeira vez).
+    $keys = @(
+        foreach ($version in @("16.0", "15.0", "14.0")) {
+            $outlook = "HKCU:\Software\Microsoft\Office\$version\Outlook"
+            if (Test-Path -LiteralPath $outlook) {
+                [PSCustomObject]@{ Version = $version; Path = "$outlook\Preferences"; Found = $true }
+            }
+        }
+    )
+
+    if ($keys.Count -gt 0) { return $keys }
+
+    return @([PSCustomObject]@{ Version = "16.0"; Path = "HKCU:\Software\Microsoft\Office\16.0\Outlook\Preferences"; Found = $false })
+}
+
+
+function Test-AgenteTIOutlookInstalled {
+    # O Outlook clássico (OUTLOOK.EXE) está registrado no Windows. O Outlook novo (da Microsoft Store) não usa esse limite.
+    foreach ($root in @("HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\OUTLOOK.EXE",
+            "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\OUTLOOK.EXE",
+            "HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths\OUTLOOK.EXE")) {
+        if (Test-Path -LiteralPath $root) { return $true }
+    }
+
+    return $false
+}
+
+
+function Set-AgenteTIOutlookAttachmentLimit {
+    # Ajustes do Windows > Limite de anexos do Outlook: o tamanho máximo de um anexo no Outlook clássico.
+    $title = "Limite de anexos do Outlook"
+    Enter-AgenteTIAction -Title $title
+
+    if (Test-AgenteTITweakOtherAccount) {
+        Exit-AgenteTIAction -Result (New-AgenteTIResult -Kind Failed -Detail "vale para o perfil do usuário, e o AgenteTI está elevado com outra conta" -Title $title)
+        return
+    }
+
+    $final = New-AgenteTIResult -Kind Ok -Title $title
+
+    try {
+        $keys = @(Get-AgenteTIOutlookPreferenceKeys)
+        $installed = Test-AgenteTIOutlookInstalled
+
+        foreach ($key in $keys) {
+            $current = Get-AgenteTIRegistryValueOrNull -Path $key.Path -Name "MaximumAttachmentSize"
+            $label = $(if ($keys.Count -gt 1) { "Limite de agora (Office $($key.Version))" } else { "Limite de agora" })
+            Write-AgenteTIKeyValue -Label $label -Value (Format-AgenteTIOutlookLimit -KiloBytes $current)
+        }
+
+        if (-not $installed -and -not $keys[0].Found) {
+            Write-AgenteTIStatus -Type Warning -Message "O Outlook clássico não foi encontrado neste PC. O limite fica gravado e passa a valer se ele for instalado; o Outlook novo (da Microsoft Store) não usa esse ajuste."
+        }
+
+        Write-AgenteTIStatus -Type Info -Notice -Message "O servidor de e-mail tem o limite próprio (o Gmail aceita 25 MB; o Microsoft 365, 35 MB por padrão e até 150 MB se a empresa configurar): acima dele, a mensagem volta mesmo que o Outlook deixe anexar."
+
+        $sizes = @(Get-AgenteTIOutlookAttachmentOptions)
+        $options = @(foreach ($entry in $sizes) { @{ Key = $entry.Key; Label = $entry.Label; Description = $entry.Description } })
+        $options += @{ Key = "O"; Label = "Outro valor"; Description = "você digita o tamanho em MB (de 1 a 2048)" }
+        $options += @{ Key = "P"; Label = "Padrão do Outlook"; Description = "apaga o valor gravado: o Outlook volta aos 20 MB dele" }
+        $options += @{ Key = "X"; Label = "Cancelar"; Exit = $true }
+
+        $answer = Read-AgenteTIChoice -Message "Qual o tamanho máximo de um anexo no Outlook?" -Options $options -DefaultKey "X" -ShowMenu `
+            -TextPrompt "Opção (1 a 4, O, P ou X; ENTER = cancelar)"
+
+        $megabytes = $null
+
+        if ($answer -ieq "O") {
+            $typed = Read-AgenteTIText -Message "Tamanho máximo em MB (de 1 a 2048; vazio = cancelar)"
+            $parsed = 0
+
+            if ([string]::IsNullOrWhiteSpace($typed)) {
+                $answer = "X"
+            }
+            elseif (-not [int]::TryParse(($typed -replace '(?i)\s*mb$', ''), [ref]$parsed) -or $parsed -lt 1 -or $parsed -gt 2048) {
+                throw "valor inválido: '$typed'. Informe um número inteiro de MB, de 1 a 2048."
+            }
+            else {
+                $megabytes = $parsed
+            }
+        }
+        else {
+            $chosen = @($sizes | Where-Object { $_.Key -ieq $answer }) | Select-Object -First 1
+            if ($null -ne $chosen) { $megabytes = [int]$chosen.Megabytes }
+        }
+
+        if ($answer -ieq "P") {
+            foreach ($key in $keys) {
+                if ($null -ne (Get-AgenteTIRegistryValueOrNull -Path $key.Path -Name "MaximumAttachmentSize")) {
+                    Remove-ItemProperty -LiteralPath $key.Path -Name "MaximumAttachmentSize" -ErrorAction Stop
+                }
+            }
+
+            Write-AgenteTIStatus -Type Success -Message "Limite de anexos do Outlook: de volta ao padrão (20 MB)."
+            $final = New-AgenteTIResult -Kind Ok -Detail "limite de anexos do Outlook: padrão (20 MB)" -Title $title
+            [void](Set-AgenteTIResultView -Result $final -Headline "Padrão do Outlook (20 MB)" -Note "O valor gravado foi apagado; o Outlook volta ao limite dele.")
+        }
+        elseif ($null -eq $megabytes) {
+            Write-AgenteTIStatus -Type Warning -Message "Operação cancelada."
+            $final = New-AgenteTIResult -Kind Skipped -Detail "cancelado pelo usuário" -Title $title
+        }
+        else {
+            $kb = [int]($megabytes * 1024)
+
+            foreach ($key in $keys) {
+                Set-AgenteTIRegistryDWord -Path $key.Path -Name "MaximumAttachmentSize" -Value $kb
+            }
+
+            $text = Format-AgenteTIOutlookLimit -KiloBytes $kb
+            Write-AgenteTIStatus -Type Success -Message "Limite de anexos do Outlook: $text."
+            $final = New-AgenteTIResult -Kind Ok -Detail "limite de anexos do Outlook: $text" -Title $title
+            [void](Set-AgenteTIResultView -Result $final -Headline "$megabytes MB por anexo" -Note "Feche o Outlook e abra de novo para valer. O servidor de e-mail pode ter um limite menor.")
+        }
+
+        if ($final.Kind -eq "Ok") {
+            if (@(Get-Process -Name "OUTLOOK" -ErrorAction SilentlyContinue).Count -gt 0) {
+                Write-AgenteTIStatus -Type Warning -Message "O Outlook está aberto: feche-o por completo e abra de novo para o limite valer."
+            }
+            else {
+                Write-AgenteTIStatus -Type Info -Message "Vale na próxima vez que o Outlook abrir."
+            }
+        }
+    }
+    catch {
+        Write-AgenteTIStatus -Type Error -Message "Não foi possível mudar o limite de anexos: $($_.Exception.Message)"
+        $final = New-AgenteTIResult -Kind Failed -Detail $_.Exception.Message -Title $title
+    }
+
+    Exit-AgenteTIAction -Result $final
+}
+
+
 Export-ModuleMember -Function *

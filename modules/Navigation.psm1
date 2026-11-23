@@ -353,6 +353,10 @@ function Get-AgenteTINavigation {
 
     $pages += New-AgenteTINavPage -Id "tweaks" -Title "Ajustes do Windows" -Kind Tweaks `
         -Summary "Mudanças reversíveis, com backup do valor original." -Items @(
+        # Primeiro da página, a pedido: o limite de anexos do Outlook clássico é a dúvida mais comum do suporte.
+        (New-AgenteTINavItem -Id "tweaks.outlook-attachments" -Label "Limite de anexos do Outlook" `
+            -Keywords "outlook clássico anexo anexos tamanho limite grande arquivo e-mail email mb maximumattachmentsize office 365 microsoft 365" `
+            -Description "Escolhe o tamanho máximo de um anexo no Outlook clássico: 25, 50, 100, 150 MB ou outro valor" -Command "Set-AgenteTIOutlookAttachmentLimit"),
         (New-AgenteTINavItem -Id "tweaks.recommended" -Label "Aplicar ajustes recomendados" -Admin -Accent `
             -Description "Mostra as extensões de arquivos e tira dicas, sugestões e o ID de publicidade; você escolhe quais" -Command "Invoke-AgenteTIRecommendedTweaks"),
         (New-AgenteTINavItem -Id "tweaks.profiles" -Label "Perfis de ajustes" -Admin `

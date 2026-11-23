@@ -121,6 +121,7 @@ $script:AgenteTIIcons = @{
     "dots" = "M 6 12 L 6.01 12 M 12 12 L 12.01 12 M 18 12 L 18.01 12"
     "palette" = "M 12 3.5 C 7.3 3.5 3.5 7.3 3.5 12 C 3.5 16.7 7.3 20.5 12 20.5 C 13.2 20.5 13.9 19.7 13.9 18.7 C 13.9 17.6 13 17.2 13 16.2 C 13 15.2 13.8 14.5 14.8 14.5 H 16.8 C 18.9 14.5 20.5 12.9 20.5 10.8 C 20.5 6.8 16.7 3.5 12 3.5 Z M 7.8 12.2 L 7.81 12.2 M 9.6 8.2 L 9.61 8.2 M 14.2 7.6 L 14.21 7.6 M 17 10.6 L 17.01 10.6"
     "keyboard" = "M 4.5 6.5 H 19.5 A 1 1 0 0 1 20.5 7.5 V 16.5 A 1 1 0 0 1 19.5 17.5 H 4.5 A 1 1 0 0 1 3.5 16.5 V 7.5 A 1 1 0 0 1 4.5 6.5 Z M 7 10 L 7.01 10 M 10.3 10 L 10.31 10 M 13.7 10 L 13.71 10 M 17 10 L 17.01 10 M 8.5 14 H 15.5"
+    "mail" = "M 4.5 6 H 19.5 A 1 1 0 0 1 20.5 7 V 17 A 1 1 0 0 1 19.5 18 H 4.5 A 1 1 0 0 1 3.5 17 V 7 A 1 1 0 0 1 4.5 6 Z M 4 6.8 L 12 12.8 L 20 6.8"
     "admin" = "M 12 3.2 L 19.5 6 V 11.5 C 19.5 16 16.4 19.4 12 20.8 C 7.6 19.4 4.5 16 4.5 11.5 V 6 Z"
 }
 
@@ -166,6 +167,7 @@ $script:AgenteTIIconNames = @{
 
     "tweaks.recommended" = "sparkles"; "tweaks.profiles" = "list"; "tweaks.restore-point" = "restore"; "tweaks.export" = "upload"
     "tweaks.import" = "download"; "tweaks.revert-all" = "undo"; "tweaks.keyboard-language" = "keyboard"; "tweaks.notifications" = "bell"
+    "tweaks.outlook-attachments" = "mail"
     "personalize.accent-color" = "palette"; "personalize.lock-screen" = "lock"; "personalize.settings" = "monitor"
 
     "app.about" = "info"; "app.update" = "download"; "app.shortcut" = "link"; "app.logs" = "folder"

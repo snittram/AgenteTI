@@ -103,7 +103,7 @@ function Get-AgenteTITweaksMenuLetters {
     param ([string]$PageId = "tweaks")
 
     $keys = @{
-        "tweaks.recommended" = "A"; "tweaks.profiles" = "P"; "tweaks.keyboard-language" = "T"; "tweaks.notifications" = "N"
+        "tweaks.outlook-attachments" = "L"; "tweaks.recommended" = "A"; "tweaks.profiles" = "P"; "tweaks.keyboard-language" = "T"; "tweaks.notifications" = "N"
         "tweaks.restore-point" = "R"; "tweaks.export" = "E"; "tweaks.import" = "I"; "tweaks.revert-all" = "D"
         "personalize.accent-color" = "C"; "personalize.lock-screen" = "B"; "personalize.settings" = "P"
     }
