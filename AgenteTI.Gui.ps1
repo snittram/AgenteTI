@@ -2759,6 +2759,12 @@ function Invoke-GuiNavItem {
         return
     }
 
+    # Escanear a rede tem tela própria na janela (tabela com ícones e filtros); o console usa a versão em texto.
+    if (Test-GuiNetScanItem -Item $Item) {
+        Show-GuiPage -Id $script:NetScanPageId
+        return
+    }
+
     if ($Item.Kind -eq "Page") {
         # Resultado de busca que leva a uma página (ou a um ajuste do Windows): a página destaca o ajuste e, se ele está
         # no grupo recolhido, abre o grupo.
@@ -4501,6 +4507,933 @@ function Hide-GuiRunView {
     Update-GuiRunStrip
 }
 
+# --- Escanear a rede -------------------------------------------------------------------------------------------
+# A tela própria da ação "Escanear a rede" (o console continua com a versão em texto): tabela de aparelhos com ícone,
+# situação, filtros e detalhes. O escaneamento só roda quando a pessoa pede, num leitor em segundo plano (a janela não
+# trava); ao abrir, a tela mostra o último escaneamento guardado desta rede.
+
+$script:NetScan = @{
+    View = $null; Reader = $null; Busy = ""; Problem = ""; Message = ""; Connection = ""
+    Kind = ""; Status = "all"; Search = ""; Sort = "ip"; Descending = $false
+    Expanded = @{}; Wide = $true; Ui = $null; Elapsed = $null
+}
+$script:NetScanTimeoutSeconds = 240
+$script:NetScanPageId = "network-scan"
+
+function Test-GuiNetScanItem {
+    # O item da navegação que abre esta tela, em vez de rodar a ação em texto.
+    param ($Item)
+
+    return ($null -ne $Item -and ([string]$Item.Id -eq "network.scan" -or [string]$Item.Command -eq "Invoke-AgenteTINetworkScan"))
+}
+
+function Start-GuiNetScanRead {
+    # Lê o último escaneamento guardado ou, com -Scan, escaneia a rede, no leitor em segundo plano.
+    param ([switch]$Scan)
+
+    $state = $script:NetScan
+    if ($state.Busy) { return }
+
+    try {
+        if ($null -eq $state.Reader) {
+            $state.Reader = New-AgenteTIGuiReader -ModuleRoot $moduleRoot -Modules @("Core", "NetworkScan")
+        }
+
+        $arguments = @{}
+        if ($Scan) { $arguments["Scan"] = $true }
+
+        if (-not (Start-AgenteTIGuiRead -Reader $state.Reader -Command "Get-AgenteTINetworkScanView" -Arguments $arguments)) { return }
+    }
+    catch {
+        $state.Problem = "Error"
+        $state.Message = "Não foi possível começar o escaneamento: $($_.Exception.Message)"
+        if ($script:CurrentPage -eq $script:NetScanPageId) { Update-GuiNetScanView }
+        return
+    }
+
+    $state.Busy = $(if ($Scan) { "scan" } else { "load" })
+    if ($Scan) { $state.Problem = ""; $state.Message = "" }
+
+    if ($script:CurrentPage -eq $script:NetScanPageId) { Update-GuiNetScanView }
+    $script:NetScanTimer.Start()
+}
+
+function Update-GuiNetScanRead {
+    # O temporizador do leitor: mostra o tempo do escaneamento e, quando ele termina, a lista nova.
+    $state = $script:NetScan
+
+    if (-not $state.Busy -or $null -eq $state.Reader) {
+        $script:NetScanTimer.Stop()
+        return
+    }
+
+    $done = Receive-AgenteTIGuiRead -Reader $state.Reader
+
+    if ($null -eq $done) {
+        $seconds = Get-AgenteTIGuiReadSeconds -Reader $state.Reader
+
+        if ($seconds -lt $script:NetScanTimeoutSeconds) {
+            if ($null -ne $state.Elapsed) { $state.Elapsed.Text = "$([int]$seconds) s" }
+            return
+        }
+
+        # Leitura presa: o leitor é descartado (outro abre no próximo pedido).
+        Close-AgenteTIGuiReader -Reader $state.Reader
+        $state.Reader = $null
+        $done = [PSCustomObject]@{ Output = @(); Failed = $true }
+    }
+
+    $script:NetScanTimer.Stop()
+    $wasScan = ($state.Busy -eq "scan")
+    $state.Busy = ""
+
+    $view = @($done.Output | Where-Object { $null -ne $_ -and $null -ne $_.PSObject.Properties["Problem"] }) | Select-Object -Last 1
+
+    if ($null -eq $view) {
+        $state.Problem = "Error"
+        $state.Message = $(if ($wasScan) { "O escaneamento não terminou. Tente de novo; se o problema continuar, feche e abra o AgenteTI." } else { "Não foi possível ler o último escaneamento." })
+    }
+    else {
+        if ($view.Connection) { $state.Connection = [string]$view.Connection }
+
+        if ([string]$view.Problem -eq "") {
+            $state.View = $view
+            $state.Problem = ""
+            $state.Message = ""
+        }
+        else {
+            # "Nunca escaneada" só vale quando não há lista nenhuma; um erro mantém a lista anterior na tela.
+            $state.Problem = [string]$view.Problem
+            $state.Message = [string]$view.Message
+            if ($state.Problem -eq "NeverScanned" -or $state.Problem -eq "NoNetwork") { $state.View = $null }
+        }
+    }
+
+    if ($script:CurrentPage -eq $script:NetScanPageId) { Update-GuiNetScanView }
+}
+
+function New-GuiNetScanStat {
+    # Uma etiqueta da linha de resumo ("Atualizado há 5 min", "71 aparelhos").
+    param (
+        [Parameter(Mandatory)][string]$Icon,
+        [Parameter(Mandatory)][string]$Text,
+        [string]$Color = $script:Theme.Muted,
+        [string]$Background = $script:Theme.Inset
+    )
+
+    $chip = New-Object System.Windows.Controls.Border
+    $chip.Background = New-GuiBrush $Background
+    $chip.CornerRadius = New-Object System.Windows.CornerRadius 7
+    $chip.Padding = New-Object System.Windows.Thickness (9, 4, 10, 4)
+    $chip.Margin = New-Object System.Windows.Thickness (0, 0, 8, 8)
+
+    $row = New-Object System.Windows.Controls.StackPanel
+    $row.Orientation = "Horizontal"
+
+    $glyph = New-GuiIcon -Name $Icon -Size 14 -Color $Color
+    $glyph.Margin = New-Object System.Windows.Thickness (0, 0, 6, 0)
+    [void]$row.Children.Add($glyph)
+
+    $label = New-GuiText -Text $Text -Size 12.5 -Color $Color
+    $label.VerticalAlignment = "Center"
+    [void]$row.Children.Add($label)
+
+    $chip.Child = $row
+    return $chip
+}
+
+function New-GuiNetScanPill {
+    # A situação do aparelho (Online, Fora do ar) ou uma marca (NOVO, Este PC) numa etiqueta colorida.
+    param (
+        [Parameter(Mandatory)][string]$Text,
+        [Parameter(Mandatory)][ValidateSet("Ok", "Warn", "Bad", "Muted", "Accent")][string]$Level
+    )
+
+    $pill = New-Object System.Windows.Controls.Border
+    $pill.CornerRadius = New-Object System.Windows.CornerRadius 6
+    $pill.Padding = New-Object System.Windows.Thickness (7, 2, 7, 2)
+    $pill.HorizontalAlignment = "Left"
+    $pill.VerticalAlignment = "Center"
+
+    if ($Level -eq "Accent") {
+        $pill.Background = New-GuiBrush $script:Theme.AccentCard
+        $color = $script:Theme.AccentText
+    }
+    else {
+        $pill.Background = New-GuiBrush $script:LevelColors[$Level].Back
+        $color = $script:LevelColors[$Level].Dot
+    }
+
+    $label = New-GuiText -Text $Text -Size 11.5 -Color $color -Bold $true
+    $label.TextWrapping = "NoWrap"
+    $pill.Child = $label
+
+    return $pill
+}
+
+function New-GuiNetScanCell {
+    # Um texto de célula da tabela, numa linha só, cortado com "…" quando não cabe.
+    param (
+        [string]$Text,
+        [double]$Size = 13,
+        [string]$Color = $script:Theme.Text,
+        [bool]$Bold = $false,
+        [switch]$Mono
+    )
+
+    $cell = New-GuiText -Text $Text -Size $Size -Color $Color -Bold $Bold
+    $cell.TextWrapping = "NoWrap"
+    $cell.TextTrimming = "CharacterEllipsis"
+    $cell.VerticalAlignment = "Center"
+    $cell.Margin = New-Object System.Windows.Thickness (0, 0, 12, 0)
+    $cell.ToolTip = $Text
+    if ($Mono) { $cell.FontFamily = New-Object System.Windows.Media.FontFamily "Consolas" }
+
+    return $cell
+}
+
+function Get-GuiNetScanColumns {
+    # As colunas da tabela: na janela larga, com Fabricante e MAC; na estreita, o fabricante vai embaixo do nome.
+    $columns = @(
+        @{ Key = ""; Title = ""; Width = 46 },
+        @{ Key = "name"; Title = "Aparelho"; Width = -1 }
+    )
+
+    if ($script:NetScan.Wide) { $columns += @{ Key = "vendor"; Title = "Fabricante"; Width = 160 } }
+
+    $columns += @(
+        @{ Key = "ip"; Title = "IP"; Width = 122 },
+        @{ Key = "status"; Title = "Situação"; Width = 100 },
+        @{ Key = "seen"; Title = "Visto por último"; Width = 118 }
+    )
+
+    if ($script:NetScan.Wide) { $columns += @{ Key = "mac"; Title = "MAC"; Width = 150 } }
+
+    return $columns
+}
+
+function New-GuiNetScanGrid {
+    # Uma grade com as colunas da tabela (o cabeçalho e cada linha usam a mesma).
+    $grid = New-Object System.Windows.Controls.Grid
+
+    foreach ($column in @(Get-GuiNetScanColumns)) {
+        $definition = New-Object System.Windows.Controls.ColumnDefinition
+
+        if ($column.Width -lt 0) {
+            $definition.Width = New-Object System.Windows.GridLength (1, [System.Windows.GridUnitType]::Star)
+            $definition.MinWidth = 150
+        }
+        else {
+            $definition.Width = New-Object System.Windows.GridLength $column.Width
+        }
+
+        [void]$grid.ColumnDefinitions.Add($definition)
+    }
+
+    return $grid
+}
+
+function Add-GuiGridCell {
+    param ($Grid, $Element, [int]$Column)
+
+    [System.Windows.Controls.Grid]::SetColumn($Element, $Column)
+    [void]$Grid.Children.Add($Element)
+}
+
+function New-GuiNetScanHeader {
+    # O cabeçalho da tabela. Clicar num título ordena por ele; clicar de novo inverte a ordem.
+    $border = New-Object System.Windows.Controls.Border
+    $border.Padding = New-Object System.Windows.Thickness (14, 10, 14, 10)
+    $border.BorderBrush = New-GuiBrush $script:Theme.Line
+    $border.BorderThickness = New-Object System.Windows.Thickness (0, 0, 0, 1)
+
+    $grid = New-GuiNetScanGrid
+    $index = 0
+
+    foreach ($column in @(Get-GuiNetScanColumns)) {
+        if ($column.Key) {
+            $button = New-Object System.Windows.Controls.Button
+            $button.Style = $window.FindResource("GhostButton")
+            $button.Padding = New-Object System.Windows.Thickness (0)
+            $button.HorizontalAlignment = "Left"
+            $button.HorizontalContentAlignment = "Left"
+            $button.Tag = $column.Key
+
+            $title = $column.Title.ToUpperInvariant()
+            if ($script:NetScan.Sort -eq $column.Key) { $title += $(if ($script:NetScan.Descending) { "  ▼" } else { "  ▲" }) }
+
+            $label = New-GuiText -Text $title -Size 11.5 -Color $script:Theme.Dim -Bold $true
+            $label.TextWrapping = "NoWrap"
+            $button.Content = $label
+            Set-GuiAutomationName -Element $button -Name "Ordenar por $($column.Title)"
+
+            $button.Add_Click({
+                param ($sender, $eventArgs)
+                $key = [string]$sender.Tag
+                if ($script:NetScan.Sort -eq $key) { $script:NetScan.Descending = -not $script:NetScan.Descending }
+                else { $script:NetScan.Sort = $key; $script:NetScan.Descending = ($key -eq "seen") }
+                Update-GuiNetScanTable
+            })
+
+            Add-GuiGridCell -Grid $grid -Element $button -Column $index
+        }
+
+        $index++
+    }
+
+    $border.Child = $grid
+    return $border
+}
+
+function New-GuiNetScanDeviceIcon {
+    # O ícone do tipo num quadrado arredondado (em destaque para este PC e o roteador).
+    param ($Device)
+
+    $highlight = ($Device.IsSelf -or $Device.IsGateway)
+
+    $box = New-Object System.Windows.Controls.Border
+    $box.Width = 34
+    $box.Height = 34
+    $box.CornerRadius = New-Object System.Windows.CornerRadius 9
+    $box.HorizontalAlignment = "Left"
+    $box.Background = New-GuiBrush $(if ($highlight) { $script:Theme.AccentCard } else { $script:Theme.Inset })
+    $box.Child = New-GuiIcon -Name ([string]$Device.Icon) -Size 19 -Color $(if ($highlight) { $script:Theme.AccentText } else { $script:Theme.Muted })
+    $box.Child.HorizontalAlignment = "Center"
+    $box.ToolTip = [string]$Device.Kind
+
+    return $box
+}
+
+function New-GuiNetScanFact {
+    # Um dado do painel de detalhes: rótulo pequeno em cima, valor embaixo.
+    param ([string]$Label, [string]$Value, [switch]$Mono)
+
+    $stack = New-Object System.Windows.Controls.StackPanel
+    $stack.Width = 230
+    $stack.Margin = New-Object System.Windows.Thickness (0, 0, 16, 12)
+
+    [void]$stack.Children.Add((New-GuiText -Text $Label -Size 11.5 -Color $script:Theme.Dim))
+
+    $text = New-GuiText -Text $(if ($Value) { $Value } else { "Não disponível" }) -Size 13
+    $text.Margin = New-Object System.Windows.Thickness (0, 2, 0, 0)
+    if ($Mono) { $text.FontFamily = New-Object System.Windows.Media.FontFamily "Consolas" }
+    [void]$stack.Children.Add($text)
+
+    return $stack
+}
+
+function New-GuiNetScanDetails {
+    # O painel que abre embaixo de um aparelho: todos os dados, as portas abertas e o que cada uma indica, e atalhos.
+    param ($Device)
+
+    $panel = New-Object System.Windows.Controls.Border
+    $panel.Background = New-GuiBrush $script:Theme.Inset
+    $panel.Padding = New-Object System.Windows.Thickness (60, 14, 14, 10)
+    $panel.BorderBrush = New-GuiBrush $script:Theme.Line
+    $panel.BorderThickness = New-Object System.Windows.Thickness (0, 0, 0, 1)
+
+    $stack = New-Object System.Windows.Controls.StackPanel
+
+    $facts = New-Object System.Windows.Controls.WrapPanel
+    $format = "dd/MM/yyyy HH:mm"
+    $macText = [string]$Device.MacText
+    if ($Device.RandomMac) { $macText += " (privado: o aparelho troca o MAC por segurança)" }
+
+    [void]$facts.Children.Add((New-GuiNetScanFact -Label "Tipo provável" -Value ([string]$Device.Kind)))
+    [void]$facts.Children.Add((New-GuiNetScanFact -Label "Nome na rede" -Value ([string]$Device.Name)))
+    [void]$facts.Children.Add((New-GuiNetScanFact -Label "Fabricante" -Value $(if ($Device.Vendor -and $Device.Vendor -ne "MAC privado") { [string]$Device.Vendor } else { "" })))
+    [void]$facts.Children.Add((New-GuiNetScanFact -Label "Endereço IP" -Value ([string]$Device.Ip) -Mono))
+    [void]$facts.Children.Add((New-GuiNetScanFact -Label "Endereço MAC" -Value $macText -Mono))
+    [void]$facts.Children.Add((New-GuiNetScanFact -Label "Visto pela primeira vez" -Value $(if ($Device.FirstSeen) { ([datetime]$Device.FirstSeen).ToString($format) } else { "" })))
+    [void]$facts.Children.Add((New-GuiNetScanFact -Label "Visto por último" -Value $(if ($Device.LastSeen) { "$(([datetime]$Device.LastSeen).ToString($format)) ($(Format-AgenteTIAgo -When $Device.LastSeen))" } else { "" })))
+    [void]$stack.Children.Add($facts)
+
+    [void]$stack.Children.Add((New-GuiText -Text "Portas abertas" -Size 11.5 -Color $script:Theme.Dim))
+
+    $ports = @($Device.PortsText)
+
+    if ($Device.IsSelf) {
+        $portLine = New-GuiText -Text "As portas deste PC não são testadas." -Size 13 -Color $script:Theme.Muted
+        $portLine.Margin = New-Object System.Windows.Thickness (0, 2, 0, 0)
+        [void]$stack.Children.Add($portLine)
+    }
+    elseif ($ports.Count -eq 0) {
+        $portLine = New-GuiText -Text "Nenhuma das portas testadas está aberta (22, 80, 443, 445, 554, 631, 3389, 8080 e 9100)." -Size 13 -Color $script:Theme.Muted
+        $portLine.Margin = New-Object System.Windows.Thickness (0, 2, 0, 0)
+        [void]$stack.Children.Add($portLine)
+    }
+    else {
+        foreach ($line in $ports) {
+            $portLine = New-GuiText -Text "•  $line" -Size 13
+            $portLine.Margin = New-Object System.Windows.Thickness (0, 2, 0, 0)
+            [void]$stack.Children.Add($portLine)
+        }
+    }
+
+    $actions = New-Object System.Windows.Controls.WrapPanel
+    $actions.Margin = New-Object System.Windows.Thickness (0, 12, 0, 0)
+
+    # A página de configuração do aparelho (roteador, impressora, câmera), quando ele tem uma e está na rede agora.
+    $webPorts = @($Device.Ports)
+    $url = ""
+    if ($webPorts -contains 80) { $url = "http://$($Device.Ip)/" }
+    elseif ($webPorts -contains 443) { $url = "https://$($Device.Ip)/" }
+    elseif ($webPorts -contains 8080) { $url = "http://$($Device.Ip):8080/" }
+
+    if ($url -and $Device.Online -and -not $Device.IsSelf) {
+        $open = New-GuiButton -Text "Abrir a página do aparelho" -Icon "external" -Tag $url
+        $open.Margin = New-Object System.Windows.Thickness (0, 0, 8, 6)
+        $open.Add_Click({
+            param ($sender, $eventArgs)
+            try { Start-Process -FilePath ([string]$sender.Tag) -ErrorAction Stop }
+            catch { [void](Show-GuiMessage -Icon Warning -Text "Não foi possível abrir $($sender.Tag): $($_.Exception.Message)") }
+        })
+        [void]$actions.Children.Add($open)
+    }
+
+    foreach ($copy in @(@{ Text = "Copiar IP"; Value = [string]$Device.Ip }, @{ Text = "Copiar MAC"; Value = $(if ($Device.Mac -like "IP-*") { "" } else { [string]$Device.MacText }) })) {
+        if (-not $copy.Value) { continue }
+
+        $button = New-GuiButton -Text $copy.Text -Icon "copy" -Tag $copy.Value
+        $button.Margin = New-Object System.Windows.Thickness (0, 0, 8, 6)
+        $button.Add_Click({
+            param ($sender, $eventArgs)
+            try { [System.Windows.Clipboard]::SetText([string]$sender.Tag) } catch { Write-Verbose "Área de transferência ocupada." }
+        })
+        [void]$actions.Children.Add($button)
+    }
+
+    [void]$stack.Children.Add($actions)
+    $panel.Child = $stack
+
+    return $panel
+}
+
+function New-GuiNetScanRow {
+    # Uma linha da tabela. Clicar (ou Enter/Espaço) abre e fecha os detalhes embaixo dela.
+    param ($Device)
+
+    $state = $script:NetScan
+    $container = New-Object System.Windows.Controls.StackPanel
+
+    $button = New-Object System.Windows.Controls.Button
+    $button.Style = $window.FindResource("RowButton")
+    $button.Tag = $container
+
+    $grid = New-GuiNetScanGrid
+    $index = 0
+
+    foreach ($column in @(Get-GuiNetScanColumns)) {
+        $element = $null
+
+        switch ($column.Key) {
+            "" { $element = New-GuiNetScanDeviceIcon -Device $Device }
+            "name" {
+                $stack = New-Object System.Windows.Controls.StackPanel
+                $stack.VerticalAlignment = "Center"
+
+                $line = New-Object System.Windows.Controls.DockPanel
+                $line.LastChildFill = $true
+
+                $marks = New-Object System.Windows.Controls.StackPanel
+                $marks.Orientation = "Horizontal"
+                Set-GuiDock -Element $marks -Side "Right"
+                foreach ($mark in @(
+                        $(if ($Device.IsNew) { @{ Text = "NOVO"; Level = "Warn" } }),
+                        $(if ($Device.IsSelf) { @{ Text = "ESTE PC"; Level = "Accent" } }),
+                        $(if ($Device.IsGateway) { @{ Text = "ROTEADOR"; Level = "Accent" } })
+                    )) {
+                    if ($null -eq $mark) { continue }
+                    $pill = New-GuiNetScanPill -Text $mark.Text -Level $mark.Level
+                    $pill.Margin = New-Object System.Windows.Thickness (0, 0, 8, 0)
+                    [void]$marks.Children.Add($pill)
+                }
+                [void]$line.Children.Add($marks)
+                [void]$line.Children.Add((New-GuiNetScanCell -Text ([string]$Device.DisplayName) -Bold $true))
+                [void]$stack.Children.Add($line)
+
+                $second = [string]$Device.Kind
+                if (-not $state.Wide -and $Device.Vendor -and $Device.Vendor -ne "MAC privado") { $second += " · $($Device.Vendor)" }
+                [void]$stack.Children.Add((New-GuiNetScanCell -Text $second -Size 12 -Color $script:Theme.Dim))
+
+                $element = $stack
+            }
+            "vendor" { $element = New-GuiNetScanCell -Text $(if ($Device.Vendor) { [string]$Device.Vendor } else { "—" }) -Color $script:Theme.Muted }
+            "ip" { $element = New-GuiNetScanCell -Text ([string]$Device.Ip) -Mono }
+            "status" { $element = New-GuiNetScanPill -Text $(if ($Device.Online) { "Online" } else { "Fora do ar" }) -Level $(if ($Device.Online) { "Ok" } else { "Muted" }) }
+            "seen" { $element = New-GuiNetScanCell -Text (Format-AgenteTIAgo -When $Device.LastSeen) -Color $script:Theme.Muted }
+            "mac" { $element = New-GuiNetScanCell -Text ([string]$Device.MacText) -Size 12.5 -Color $script:Theme.Muted -Mono }
+        }
+
+        if ($null -ne $element) { Add-GuiGridCell -Grid $grid -Element $element -Column $index }
+        $index++
+    }
+
+    # Fora do ar: a linha fica esmaecida, como na lista do roteador.
+    if (-not $Device.Online) { $grid.Opacity = 0.55 }
+
+    $button.Content = $grid
+    Set-GuiAutomationName -Element $button -Name "$($Device.DisplayName), $($Device.Kind), $($Device.Ip), $(if ($Device.Online) { 'online' } else { 'fora do ar' }). Abre os detalhes"
+    [void]$container.Children.Add($button)
+
+    $key = [string]$Device.Mac
+    $container.Tag = @{ Device = $Device; Key = $key; Details = $null }
+
+    if ($state.Expanded.ContainsKey($key)) {
+        $container.Tag.Details = New-GuiNetScanDetails -Device $Device
+        [void]$container.Children.Add($container.Tag.Details)
+    }
+
+    $button.Add_Click({
+        param ($sender, $eventArgs)
+        $box = $sender.Tag
+        $info = $box.Tag
+
+        if ($null -ne $info.Details) {
+            [void]$box.Children.Remove($info.Details)
+            $info.Details = $null
+            [void]$script:NetScan.Expanded.Remove($info.Key)
+        }
+        else {
+            $info.Details = New-GuiNetScanDetails -Device $info.Device
+            [void]$box.Children.Add($info.Details)
+            $script:NetScan.Expanded[$info.Key] = $true
+        }
+    })
+
+    return $container
+}
+
+function Update-GuiNetScanTable {
+    # Refaz o cabeçalho, as linhas e o rodapé da tabela com os filtros de agora.
+    $state = $script:NetScan
+    $ui = $state.Ui
+    if ($null -eq $ui) { return }
+
+    $ui.Table.Children.Clear()
+    $all = @($(if ($null -ne $state.View) { $state.View.Devices }))
+
+    if ($all.Count -eq 0) {
+        $ui.TableCard.Visibility = "Collapsed"
+        $ui.Footer.Text = ""
+        return
+    }
+
+    $ui.TableCard.Visibility = "Visible"
+    [void]$ui.Table.Children.Add((New-GuiNetScanHeader))
+
+    $shown = @(Select-AgenteTINetworkDevices -Devices $all -Kind $state.Kind -Status $state.Status -Search $state.Search -Sort $state.Sort -Descending:$state.Descending)
+
+    foreach ($device in $shown) {
+        [void]$ui.Table.Children.Add((New-GuiNetScanRow -Device $device))
+    }
+
+    if ($shown.Count -eq 0) {
+        $empty = New-GuiText -Text "Nenhum aparelho com esses filtros." -Size 13 -Color $script:Theme.Muted
+        $empty.Margin = New-Object System.Windows.Thickness (16, 16, 16, 16)
+        [void]$ui.Table.Children.Add($empty)
+    }
+
+    $ui.Footer.Text = "Mostrando $($shown.Count) de $($all.Count) aparelhos. Clique num aparelho para ver os detalhes. O tipo é um palpite pelo fabricante e pelas portas abertas; aparelhos em economia de energia podem não responder."
+}
+
+function Update-GuiNetScanFilters {
+    # Os filtros de tipo (com quantos há de cada) e de situação. O tipo escolhido que sumiu da lista volta para "Todos".
+    $state = $script:NetScan
+    $ui = $state.Ui
+    $all = @($(if ($null -ne $state.View) { $state.View.Devices }))
+
+    $ui.Kinds.Children.Clear()
+    $ui.Statuses.Children.Clear()
+    $ui.FilterArea.Visibility = $(if ($all.Count -gt 0) { "Visible" } else { "Collapsed" })
+    if ($all.Count -eq 0) { return }
+
+    $counts = @(Get-AgenteTINetworkKindCounts -Devices $all)
+    if ($state.Kind -and -not @($counts | Where-Object { $_.Kind -eq $state.Kind })) { $state.Kind = "" }
+
+    $options = @([PSCustomObject]@{ Kind = ""; Count = $all.Count; Icon = "list" }) + $counts
+
+    foreach ($option in $options) {
+        $selected = ([string]$state.Kind -eq [string]$option.Kind)
+        $button = New-Object System.Windows.Controls.Button
+        $button.Style = $window.FindResource($(if ($selected) { "SegmentButtonSelected" } else { "SegmentButton" }))
+        $button.Padding = New-Object System.Windows.Thickness (10, 5, 10, 5)
+        $button.Margin = New-Object System.Windows.Thickness (0, 0, 4, 4)
+        $button.Tag = [string]$option.Kind
+
+        $row = New-Object System.Windows.Controls.StackPanel
+        $row.Orientation = "Horizontal"
+        $glyph = New-GuiIcon -Name ([string]$option.Icon) -Size 14 -Color $(if ($selected) { $script:Theme.AccentText } else { $script:Theme.Muted })
+        $glyph.Margin = New-Object System.Windows.Thickness (0, 0, 6, 0)
+        [void]$row.Children.Add($glyph)
+        $name = $(if ($option.Kind) { [string]$option.Kind } else { "Todos" })
+        $label = New-Object System.Windows.Controls.TextBlock
+        $label.Text = "$name  $($option.Count)"
+        $label.VerticalAlignment = "Center"
+        [void]$row.Children.Add($label)
+        $button.Content = $row
+        Set-GuiAutomationName -Element $button -Name "$name, $($option.Count) aparelhos$(if ($selected) { ', selecionado' })"
+
+        $button.Add_Click({
+            param ($sender, $eventArgs)
+            $script:NetScan.Kind = [string]$sender.Tag
+            Update-GuiNetScanFilters
+            Update-GuiNetScanTable
+        })
+
+        [void]$ui.Kinds.Children.Add($button)
+    }
+
+    $newCount = @($all | Where-Object { $_.IsNew }).Count
+    $onlineCount = @($all | Where-Object { $_.Online }).Count
+
+    foreach ($option in @(
+            @{ Key = "all"; Text = "Todos" },
+            @{ Key = "online"; Text = "Online $onlineCount" },
+            @{ Key = "offline"; Text = "Fora do ar $($all.Count - $onlineCount)" },
+            @{ Key = "new"; Text = "Novos $newCount" }
+        )) {
+        $selected = ($state.Status -eq $option.Key)
+        $button = New-Object System.Windows.Controls.Button
+        $button.Style = $window.FindResource($(if ($selected) { "SegmentButtonSelected" } else { "SegmentButton" }))
+        $button.Padding = New-Object System.Windows.Thickness (11, 5, 11, 5)
+        $button.Content = $option.Text
+        $button.Tag = $option.Key
+        Set-GuiAutomationName -Element $button -Name "Situação: $($option.Text)$(if ($selected) { ', selecionada' })"
+
+        $button.Add_Click({
+            param ($sender, $eventArgs)
+            $script:NetScan.Status = [string]$sender.Tag
+            Update-GuiNetScanFilters
+            Update-GuiNetScanTable
+        })
+
+        [void]$ui.Statuses.Children.Add($button)
+    }
+}
+
+function Update-GuiNetScanView {
+    # Refaz tudo o que depende da leitura: resumo, andamento, avisos, filtros e tabela.
+    $state = $script:NetScan
+    $ui = $state.Ui
+    if ($null -eq $ui) { return }
+
+    $view = $state.View
+    $devices = @($(if ($null -ne $view) { $view.Devices }))
+    $scanning = ($state.Busy -eq "scan")
+
+    $ui.ScanButton.IsEnabled = -not $scanning
+    $ui.ScanLabel.Text = $(if ($scanning) { "Escaneando…" } elseif ($null -eq $view) { "Escanear agora" } else { "Escanear de novo" })
+    $ui.ExportButton.IsEnabled = ($devices.Count -gt 0 -and -not $scanning)
+
+    # Resumo: quando foi o escaneamento, quantos aparelhos, quantos novos, a rede e a conexão.
+    $ui.Stats.Children.Clear()
+
+    if ($null -ne $view) {
+        $online = @($devices | Where-Object { $_.Online }).Count
+        $new = @($devices | Where-Object { $_.IsNew }).Count
+        $when = $(if ($view.LastScan) { "Atualizado $(Format-AgenteTIAgo -When $view.LastScan) ($(([datetime]$view.LastScan).ToString('dd/MM/yyyy HH:mm')))" } else { "Sem data" })
+
+        [void]$ui.Stats.Children.Add((New-GuiNetScanStat -Icon "clock" -Text $when))
+        [void]$ui.Stats.Children.Add((New-GuiNetScanStat -Icon "list" -Text "$($devices.Count) aparelhos · $online online"))
+        if ($new -gt 0) { [void]$ui.Stats.Children.Add((New-GuiNetScanStat -Icon "warning" -Text "$new novos hoje" -Color $script:LevelColors.Warn.Dot -Background $script:LevelColors.Warn.Back)) }
+        if ($view.Network) { [void]$ui.Stats.Children.Add((New-GuiNetScanStat -Icon "globe" -Text "Rede $($view.Network)")) }
+        if ($view.Connection) { [void]$ui.Stats.Children.Add((New-GuiNetScanStat -Icon "wifi" -Text "$($view.Connection)$(if ($view.Address) { " · este PC $($view.Address)" })")) }
+        if ($view.Scanned -and $view.Seconds -gt 0) { [void]$ui.Stats.Children.Add((New-GuiNetScanStat -Icon "speed" -Text "Escaneado em $($view.Seconds) s")) }
+    }
+    elseif ($state.Connection) {
+        [void]$ui.Stats.Children.Add((New-GuiNetScanStat -Icon "wifi" -Text $state.Connection))
+    }
+
+    # Andamento, problemas e a tela vazia.
+    $ui.Status.Children.Clear()
+    $state.Elapsed = $null
+
+    if ($scanning) {
+        $card = New-GuiPanelBorder -Background $script:Theme.Card -BorderColor $script:Theme.Line -Radius 12 -Padding (New-Object System.Windows.Thickness (18, 14, 18, 16))
+        $card.Margin = New-Object System.Windows.Thickness (0, 0, 0, 14)
+        $stack = New-Object System.Windows.Controls.StackPanel
+
+        $top = New-Object System.Windows.Controls.DockPanel
+        $state.Elapsed = New-GuiText -Text "0 s" -Size 12.5 -Color $script:Theme.Dim
+        Set-GuiDock -Element $state.Elapsed -Side "Right"
+        [void]$top.Children.Add($state.Elapsed)
+        [void]$top.Children.Add((New-GuiText -Text "Escaneando a rede…" -Size 14 -Bold $true))
+        [void]$stack.Children.Add($top)
+
+        $note = New-GuiText -Text "O AgenteTI manda um ping para cada endereço da rede, lê o MAC de quem responde e testa algumas portas comuns para descobrir o tipo de cada aparelho. Costuma levar de 10 a 40 segundos; você pode continuar usando o AgenteTI." -Size 12.5 -Color $script:Theme.Muted
+        $note.Margin = New-Object System.Windows.Thickness (0, 4, 0, 0)
+        [void]$stack.Children.Add($note)
+
+        $bar = New-Object System.Windows.Controls.ProgressBar
+        $bar.Style = $window.FindResource("SlimProgress")
+        $bar.IsIndeterminate = $true
+        $bar.Margin = New-Object System.Windows.Thickness (0, 12, 0, 0)
+        [void]$stack.Children.Add($bar)
+
+        Set-GuiPanelContent -Panel $card -Content $stack
+        [void]$ui.Status.Children.Add($card)
+    }
+    elseif ($state.Busy -eq "load" -and $null -eq $view) {
+        [void]$ui.Status.Children.Add((New-GuiText -Text "Lendo o último escaneamento…" -Size 13 -Color $script:Theme.Muted))
+    }
+    elseif ($null -eq $view -and ($state.Problem -eq "NeverScanned" -or $state.Problem -eq "")) {
+        $card = New-GuiPanelBorder -Background $script:Theme.Card -BorderColor $script:Theme.Line -Radius 12 -Padding (New-Object System.Windows.Thickness (24, 22, 24, 22))
+        $card.Margin = New-Object System.Windows.Thickness (0, 0, 0, 14)
+        $stack = New-Object System.Windows.Controls.StackPanel
+
+        $glyph = New-GuiIcon -Name "router" -Size 36 -Color $script:Theme.AccentText
+        $glyph.HorizontalAlignment = "Left"
+        [void]$stack.Children.Add($glyph)
+
+        $title = New-GuiText -Text "Esta rede ainda não foi escaneada" -Size 16 -Bold $true
+        $title.Margin = New-Object System.Windows.Thickness (0, 10, 0, 4)
+        [void]$stack.Children.Add($title)
+        [void]$stack.Children.Add((New-GuiText -Text "Clique em Escanear agora para ver todos os aparelhos ligados à rede: computadores, celulares, impressoras, câmeras, roteadores e outros. A cada escaneamento o AgenteTI guarda a lista e mostra quem entrou e quem saiu da rede." -Size 13 -Color $script:Theme.Muted))
+
+        $start = New-GuiButton -Text "Escanear agora" -Kind Primary -Icon "search"
+        $start.HorizontalAlignment = "Left"
+        $start.Margin = New-Object System.Windows.Thickness (0, 14, 0, 0)
+        $start.Add_Click({ Start-GuiNetScanRead -Scan })
+        [void]$stack.Children.Add($start)
+
+        Set-GuiPanelContent -Panel $card -Content $stack
+        [void]$ui.Status.Children.Add($card)
+    }
+
+    if ($state.Problem -and $state.Problem -ne "NeverScanned" -and $state.Message -and -not $scanning) {
+        [void]$ui.Status.Children.Add((New-GuiNotice -Text $state.Message))
+    }
+
+    if ($null -ne $view -and $view.Reduced -and -not $scanning) {
+        [void]$ui.Status.Children.Add((New-GuiNotice -Text "A rede é grande: foram escaneados só os 254 endereços vizinhos deste PC ($($view.Network))."))
+    }
+
+    # O que pede atenção (aparelhos novos, Área de Trabalho Remota aberta, sem tipo), cada item filtra a tabela.
+    $ui.Attention.Children.Clear()
+
+    if ($devices.Count -gt 0) {
+        $card = New-GuiPanelBorder -Background $script:Theme.Card -BorderColor $script:Theme.Line -Radius 12 -Padding (New-Object System.Windows.Thickness (16, 12, 16, 8))
+        $card.Margin = New-Object System.Windows.Thickness (0, 0, 0, 14)
+        $stack = New-Object System.Windows.Controls.StackPanel
+        [void]$stack.Children.Add((New-GuiText -Text "Segurança da rede" -Size 14 -Bold $true))
+
+        foreach ($alert in @(Get-AgenteTINetworkScanAlerts -Devices $devices)) {
+            $colors = $script:LevelColors[[string]$alert.Level]
+
+            $button = New-Object System.Windows.Controls.Button
+            $button.Style = $window.FindResource("GhostButton")
+            $button.Padding = New-Object System.Windows.Thickness (0, 5, 0, 5)
+            $button.HorizontalAlignment = "Left"
+            $button.Tag = $alert
+
+            $row = New-Object System.Windows.Controls.StackPanel
+            $row.Orientation = "Horizontal"
+            $glyph = New-GuiIcon -Name $colors.Icon -Size 16 -Color $colors.Dot
+            $glyph.Margin = New-Object System.Windows.Thickness (0, 0, 8, 0)
+            [void]$row.Children.Add($glyph)
+            $label = New-GuiText -Text ([string]$alert.Text) -Size 13
+            $label.VerticalAlignment = "Center"
+            [void]$row.Children.Add($label)
+            $button.Content = $row
+
+            if ($alert.Filter -or $alert.Kind) {
+                Set-GuiAutomationName -Element $button -Name "$($alert.Text). Mostra esses aparelhos"
+                $button.Add_Click({
+                    param ($sender, $eventArgs)
+                    $item = $sender.Tag
+                    $script:NetScan.Status = $(if ($item.Filter) { [string]$item.Filter } else { "all" })
+                    $script:NetScan.Kind = [string]$item.Kind
+                    Update-GuiNetScanFilters
+                    Update-GuiNetScanTable
+                })
+            }
+            else {
+                $button.IsTabStop = $false
+                $button.Cursor = [System.Windows.Input.Cursors]::Arrow
+            }
+
+            [void]$stack.Children.Add($button)
+        }
+
+        Set-GuiPanelContent -Panel $card -Content $stack
+        [void]$ui.Attention.Children.Add($card)
+    }
+
+    Update-GuiNetScanFilters
+    Update-GuiNetScanTable
+}
+
+function Test-GuiNetScanWide {
+    # Há espaço para as colunas Fabricante e MAC?
+    $width = [double]$contentPanel.Width
+    if ([double]::IsNaN($width) -or $width -le 0) { $width = [double]$contentPanel.ActualWidth }
+    if ([double]::IsNaN($width) -or $width -le 0) { return $true }
+
+    return ($width -ge 900)
+}
+
+function Update-GuiNetScanLayout {
+    # A janela mudou de largura: com pouco espaço, a tabela perde as colunas Fabricante e MAC.
+    $state = $script:NetScan
+    if ($null -eq $state.Ui -or $script:CurrentPage -ne $script:NetScanPageId) { return }
+
+    $wide = Test-GuiNetScanWide
+
+    if ($wide -ne $state.Wide) {
+        $state.Wide = $wide
+        Update-GuiNetScanTable
+    }
+}
+
+function Export-GuiNetScan {
+    # Salva a lista inteira (não só a filtrada) num CSV que o Excel abre.
+    $view = $script:NetScan.View
+    if ($null -eq $view -or @($view.Devices).Count -eq 0) { return }
+
+    $dialog = New-Object Microsoft.Win32.SaveFileDialog
+    $dialog.Title = "Exportar a lista de aparelhos"
+    $dialog.Filter = "Planilha CSV (*.csv)|*.csv"
+    $dialog.FileName = "Aparelhos da rede $((Get-Date).ToString('yyyy-MM-dd HH-mm')).csv"
+
+    try { $dialog.InitialDirectory = Get-AgenteTIDownloadsPath } catch { Write-Verbose "Pasta Downloads não encontrada." }
+
+    if (-not $dialog.ShowDialog($window)) { return }
+
+    try {
+        Export-AgenteTINetworkScanCsv -Devices @($view.Devices) -Path $dialog.FileName
+        [void](Show-GuiMessage -Text "A lista de $(@($view.Devices).Count) aparelhos foi salva em:`n$($dialog.FileName)")
+    }
+    catch {
+        [void](Show-GuiMessage -Icon Error -Text "Não foi possível salvar a lista: $($_.Exception.Message)")
+    }
+}
+
+function Show-GuiNetScanPage {
+    # Monta a tela. -Rerender (troca de tema): refaz com a lista que já está na memória, sem ler de novo.
+    param ([switch]$Rerender)
+
+    $state = $script:NetScan
+
+    $pageTitle.Text = "Escanear a rede"
+    $pageSubtitle.Text = "Os aparelhos ligados à rede deste PC. O escaneamento só roda quando você pede."
+    $contentPanel.Children.Clear()
+
+    # Tudo numa coluna com a mesma folga à direita que os cartões das outras páginas (o espaço entre cartões).
+    $root = New-Object System.Windows.Controls.StackPanel
+    $root.Margin = New-Object System.Windows.Thickness (0, 0, $script:CardGap, 0)
+    [void]$contentPanel.Children.Add($root)
+
+    $ui = @{}
+
+    # Barra do alto: voltar para Rede, exportar e escanear.
+    $bar = New-Object System.Windows.Controls.DockPanel
+    $bar.Margin = New-Object System.Windows.Thickness (0, 0, 0, 14)
+
+    $back = New-GuiButton -Text "Rede" -Kind Ghost -Icon "arrow-left"
+    Set-GuiAutomationName -Element $back -Name "Voltar para Rede"
+    $back.Add_Click({ Show-GuiPage -Id "network" })
+    Set-GuiDock -Element $back -Side "Left"
+    [void]$bar.Children.Add($back)
+
+    $scan = New-GuiButton -Text "Escanear agora" -Kind Primary -Icon "refresh"
+    $scan.Margin = New-Object System.Windows.Thickness (8, 0, 0, 0)
+    $scan.Add_Click({ Start-GuiNetScanRead -Scan })
+    Set-GuiDock -Element $scan -Side "Right"
+    [void]$bar.Children.Add($scan)
+    $ui.ScanButton = $scan
+    $ui.ScanLabel = @($scan.Content.Children)[1]
+
+    $export = New-GuiButton -Text "Exportar CSV" -Icon "download"
+    $export.Add_Click({ Export-GuiNetScan })
+    Set-GuiDock -Element $export -Side "Right"
+    [void]$bar.Children.Add($export)
+    $ui.ExportButton = $export
+
+    [void]$bar.Children.Add((New-Object System.Windows.Controls.Border))
+    [void]$root.Children.Add($bar)
+
+    $ui.Stats = New-Object System.Windows.Controls.WrapPanel
+    $ui.Stats.Margin = New-Object System.Windows.Thickness (0, 0, 0, 6)
+    [void]$root.Children.Add($ui.Stats)
+
+    $ui.Status = New-Object System.Windows.Controls.StackPanel
+    [void]$root.Children.Add($ui.Status)
+
+    $ui.Attention = New-Object System.Windows.Controls.StackPanel
+    [void]$root.Children.Add($ui.Attention)
+
+    # Filtros: busca e situação numa linha, tipos na seguinte.
+    $filters = New-Object System.Windows.Controls.StackPanel
+    $filters.Margin = New-Object System.Windows.Thickness (0, 0, 0, 10)
+
+    $line = New-Object System.Windows.Controls.DockPanel
+    $line.Margin = New-Object System.Windows.Thickness (0, 0, 0, 8)
+
+    $statusTrack = New-Object System.Windows.Controls.Border
+    $statusTrack.Background = New-GuiBrush $script:Theme.Inset
+    $statusTrack.CornerRadius = New-Object System.Windows.CornerRadius 9
+    $statusTrack.Padding = New-Object System.Windows.Thickness 2
+    $statusTrack.VerticalAlignment = "Center"
+    $statusTrack.Margin = New-Object System.Windows.Thickness (12, 0, 0, 0)
+    $ui.Statuses = New-Object System.Windows.Controls.StackPanel
+    $ui.Statuses.Orientation = "Horizontal"
+    $statusTrack.Child = $ui.Statuses
+    Set-GuiDock -Element $statusTrack -Side "Right"
+    [void]$line.Children.Add($statusTrack)
+
+    $searchHost = New-Object System.Windows.Controls.Grid
+    $searchHost.Width = 340
+    $searchHost.HorizontalAlignment = "Left"
+
+    $search = New-Object System.Windows.Controls.TextBox
+    $search.Style = $window.FindResource("InputTextBox")
+    $search.Text = $state.Search
+    Set-GuiAutomationName -Element $search -Name "Buscar aparelho por nome, IP, MAC ou fabricante"
+    [void]$searchHost.Children.Add($search)
+
+    $hint = New-GuiText -Text "Buscar por nome, IP, MAC ou fabricante" -Size 13 -Color $script:Theme.Dim
+    $hint.IsHitTestVisible = $false
+    $hint.VerticalAlignment = "Center"
+    $hint.Margin = New-Object System.Windows.Thickness (11, 0, 0, 0)
+    $hint.Visibility = $(if ($state.Search) { "Collapsed" } else { "Visible" })
+    [void]$searchHost.Children.Add($hint)
+    $search.Tag = $hint
+
+    $search.Add_TextChanged({
+        param ($sender, $eventArgs)
+        $sender.Tag.Visibility = $(if ($sender.Text) { "Collapsed" } else { "Visible" })
+        $script:NetScan.Search = [string]$sender.Text
+        $script:NetScanSearchTimer.Stop()
+        $script:NetScanSearchTimer.Start()
+    })
+
+    [void]$line.Children.Add($searchHost)
+    [void]$filters.Children.Add($line)
+
+    $ui.Kinds = New-Object System.Windows.Controls.WrapPanel
+    [void]$filters.Children.Add($ui.Kinds)
+    $ui.FilterArea = $filters
+    [void]$root.Children.Add($filters)
+
+    # A tabela, num cartão.
+    $ui.TableCard = New-GuiPanelBorder -Background $script:Theme.Card -BorderColor $script:Theme.Line -Radius 12 -Padding (New-Object System.Windows.Thickness 0)
+    $ui.Table = New-Object System.Windows.Controls.StackPanel
+    Set-GuiPanelContent -Panel $ui.TableCard -Content $ui.Table
+    [void]$root.Children.Add($ui.TableCard)
+
+    $ui.Footer = New-GuiText -Text "" -Size 12 -Color $script:Theme.Dim
+    $ui.Footer.Margin = New-Object System.Windows.Thickness (2, 10, 0, 0)
+    [void]$root.Children.Add($ui.Footer)
+
+    $state.Ui = $ui
+    $state.Wide = Test-GuiNetScanWide
+    Update-GuiNetScanView
+
+    # Ao abrir, só lê o que foi guardado (rápido e sem tráfego na rede); escanear é com o botão.
+    if (-not $Rerender) { Start-GuiNetScanRead }
+}
+
 function Show-GuiPage {
     param (
         [Parameter(Mandatory)][string]$Id,
@@ -4520,6 +5453,19 @@ function Show-GuiPage {
     Hide-GuiRunView
 
     if (-not $Rerender) { $pageScroll.ScrollToTop() }
+
+    # A tela de Escanear a rede não é uma página da navegação: fica marcada a página Rede, de onde ela abre.
+    if ($Id -eq $script:NetScanPageId) {
+        Set-GuiSelectedNav -Id "network"
+        Show-GuiNetScanPage -Rerender:$Rerender
+
+        if ($Rerender) {
+            $pageScroll.UpdateLayout()
+            $pageScroll.ScrollToVerticalOffset($offset)
+        }
+
+        return
+    }
 
     $page = $null
     if ($Id -ne "home") { $page = Get-AgenteTINavPage -Id $Id }
@@ -4929,6 +5875,8 @@ function Update-GuiContentWidth {
         # A faixa da ação em andamento termina onde terminam os cartões, e não na borda da janela.
         $runStrip.HorizontalAlignment = "Left"
         $runStrip.Width = [Math]::Max(0.0, $grid.Content - $script:CardGap)
+
+        Update-GuiNetScanLayout
     }
     catch {
         Write-Verbose "Largura da página: $($_.Exception.Message)"
@@ -5244,9 +6192,11 @@ $window.Add_Closing({
     $script:RequestTimer.Stop()
     $script:HomeReaderTimer.Stop()
     $script:HomeStampTimer.Stop()
+    $script:NetScanTimer.Stop()
+    $script:NetScanSearchTimer.Stop()
     Set-GuiTaskbarProgress -State None
 
-    foreach ($reader in @($script:HomeReader, $script:WarmupReader)) {
+    foreach ($reader in @($script:HomeReader, $script:WarmupReader, $script:NetScan.Reader)) {
         if ($null -ne $reader) { Close-AgenteTIGuiReader -Reader $reader }
     }
 
@@ -5307,6 +6257,20 @@ $script:HomeReaderTimer = New-Object System.Windows.Threading.DispatcherTimer
 $script:HomeReaderTimer.Interval = [TimeSpan]::FromMilliseconds(120)
 $script:HomeReaderTimer.Add_Tick({
     try { Update-GuiHomeReader } catch { $script:HomeReaderTimer.Stop(); Stop-GuiHomeRead }
+})
+
+# O temporizador do escaneamento da rede (leitor em segundo plano) e o atraso da busca na tabela de aparelhos.
+$script:NetScanTimer = New-Object System.Windows.Threading.DispatcherTimer
+$script:NetScanTimer.Interval = [TimeSpan]::FromMilliseconds(250)
+$script:NetScanTimer.Add_Tick({
+    try { Update-GuiNetScanRead } catch { $script:NetScanTimer.Stop(); $script:NetScan.Busy = "" }
+})
+
+$script:NetScanSearchTimer = New-Object System.Windows.Threading.DispatcherTimer
+$script:NetScanSearchTimer.Interval = [TimeSpan]::FromMilliseconds(220)
+$script:NetScanSearchTimer.Add_Tick({
+    $script:NetScanSearchTimer.Stop()
+    if ($script:CurrentPage -eq $script:NetScanPageId) { Update-GuiNetScanTable }
 })
 
 # A hora da leitura do Início acompanha a virada do dia.

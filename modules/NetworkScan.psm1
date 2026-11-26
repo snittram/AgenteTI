@@ -502,20 +502,23 @@ function Save-AgenteTINetworkHistory {
         $Previous,
         [Parameter(Mandatory)][object[]]$Devices,
         [Parameter(Mandatory)][string]$Network,
-        [Parameter(Mandatory)][string]$Stamp
+        [Parameter(Mandatory)][string]$Stamp,
+        [string]$Gateway = "",
+        [string]$Connection = ""
     )
 
     $byMac = [ordered]@{}
 
     if ($null -ne $Previous -and $null -ne $Previous.Devices) {
         foreach ($old in @($Previous.Devices)) {
-            $lastSeen = [datetime]::MinValue
-            [void][datetime]::TryParse([string]$old.LastSeen, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$lastSeen)
-            if (((Get-Date) - $lastSeen).TotalDays -gt $script:AgenteTINetworkHistoryDays) { continue }
+            $lastSeen = ConvertFrom-AgenteTIScanStamp -Stamp ([string]$old.LastSeen)
+            if ($null -eq $lastSeen -or ((Get-Date) - $lastSeen).TotalDays -gt $script:AgenteTINetworkHistoryDays) { continue }
 
             $byMac[[string]$old.Mac] = [ordered]@{
                 Mac = [string]$old.Mac; Ip = [string]$old.Ip; Name = [string]$old.Name; Vendor = [string]$old.Vendor
-                Kind = [string]$old.Kind; FirstSeen = [string]$old.FirstSeen; LastSeen = [string]$old.LastSeen
+                Kind = [string]$old.Kind; Ports = @($old.Ports | Where-Object { $null -ne $_ } | ForEach-Object { [int]$_ })
+                RandomMac = [bool]$old.RandomMac; IsGateway = [bool]$old.IsGateway; IsSelf = [bool]$old.IsSelf
+                FirstSeen = [string]$old.FirstSeen; LastSeen = [string]$old.LastSeen
             }
         }
     }
@@ -526,25 +529,47 @@ function Save-AgenteTINetworkHistory {
 
         $byMac[$device.Mac] = [ordered]@{
             Mac = $device.Mac; Ip = $device.Ip; Name = $name; Vendor = $device.Vendor
-            Kind = $device.Kind; FirstSeen = $firstSeen; LastSeen = $Stamp
+            Kind = $device.Kind; Ports = @($device.Ports); RandomMac = [bool]$device.RandomMac
+            IsGateway = [bool]$device.IsGateway; IsSelf = [bool]$device.IsSelf
+            FirstSeen = $firstSeen; LastSeen = $Stamp
         }
     }
 
+    $firstScan = $Stamp
+    if ($null -ne $Previous -and [string]$Previous.FirstScan) { $firstScan = [string]$Previous.FirstScan }
+    elseif ($null -ne $Previous -and [string]$Previous.LastScan) { $firstScan = [string]$Previous.LastScan }
+
     $document = [ordered]@{
-        Network  = $Network
-        LastScan = $Stamp
-        Devices  = @($byMac.Values)
+        Network    = $Network
+        Gateway    = $Gateway
+        Connection = $Connection
+        FirstScan  = $firstScan
+        LastScan   = $Stamp
+        Devices    = @($byMac.Values)
     }
 
     Invoke-AgenteTIStateLock -ScriptBlock { Write-AgenteTIStateJson -Path $Path -InputObject $document -Depth 5 }
 }
 
 
+function ConvertFrom-AgenteTIScanStamp {
+    # A data guardada no histórico (ISO 8601) em [datetime] local; $null se não for uma data.
+    param ([AllowNull()][string]$Stamp)
+
+    $value = [datetime]::MinValue
+    if ([datetime]::TryParse([string]$Stamp, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$value)) {
+        return $value.ToLocalTime()
+    }
+
+    return $null
+}
+
+
 function Format-AgenteTIScanStamp {
     param ([string]$Stamp)
 
-    $value = [datetime]::MinValue
-    if ([datetime]::TryParse($Stamp, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind, [ref]$value)) {
+    $value = ConvertFrom-AgenteTIScanStamp -Stamp $Stamp
+    if ($null -ne $value) {
         return $value.ToString("dd/MM/yyyy HH:mm")
     }
 
@@ -621,6 +646,370 @@ function Invoke-AgenteTINetworkScanPass {
         Reduced = $range.Reduced
         Devices = @($devices | Sort-Object -Property Sort)
     }
+}
+
+
+function Get-AgenteTIScanHistoryPath {
+    # O arquivo de histórico da rede escaneada. O roteador identifica a rede: o MAC dele, ou o IP quando o MAC não aparece
+    # (o mesmo 192.168.0.1 existe em quase toda casa, o MAC não).
+    param (
+        [Parameter(Mandatory)]$Scan,
+        [Parameter(Mandatory)]$Interface
+    )
+
+    $gatewayDevice = @($Scan.Devices | Where-Object { $_.IsGateway }) | Select-Object -First 1
+    $networkKey = $(if ($null -ne $gatewayDevice -and $gatewayDevice.Mac -notlike "IP-*") { $gatewayDevice.Mac } else { "gw-$($Interface.Gateway)" })
+
+    return (Get-AgenteTINetworkHistoryPath -NetworkKey $networkKey)
+}
+
+
+function Find-AgenteTINetworkHistory {
+    # O histórico da rede em que o PC está agora, sem escanear: o arquivo mais recente cujo roteador tem o IP do roteador
+    # atual. Devolve $null se esta rede nunca foi escaneada.
+    param ([Parameter(Mandatory)][string]$Gateway)
+
+    $folder = Join-Path (Get-AgenteTIDataPath) "network-scan"
+    if (-not (Test-Path -LiteralPath $folder)) { return $null }
+
+    $best = $null
+    $bestStamp = [datetime]::MinValue
+
+    foreach ($file in @(Get-ChildItem -LiteralPath $folder -Filter "*.json" -File -ErrorAction SilentlyContinue)) {
+        $document = Read-AgenteTINetworkHistory -Path $file.FullName
+        if ($null -eq $document) { continue }
+
+        $sameNetwork = ([string]$document.Gateway -eq $Gateway) -or
+            ([string]::IsNullOrEmpty([string]$document.Gateway) -and @($document.Devices | Where-Object { [string]$_.Ip -eq $Gateway }).Count -gt 0)
+        if (-not $sameNetwork) { continue }
+
+        $stamp = ConvertFrom-AgenteTIScanStamp -Stamp ([string]$document.LastScan)
+        if ($null -ne $stamp -and $stamp -gt $bestStamp) {
+            $best = $document
+            $bestStamp = $stamp
+        }
+    }
+
+    return $best
+}
+
+
+function Get-AgenteTINetworkDeviceIcon {
+    # O ícone (GuiDesign.psm1) de cada tipo de aparelho.
+    param ([string]$Kind)
+
+    switch -Wildcard ($Kind) {
+        "Este PC" { return "laptop" }
+        "Roteador*" { return "router" }
+        "Equipamento de rede" { return "router" }
+        "Impressora" { return "printer" }
+        "Câmera*" { return "camera" }
+        "Celular*" { return "phone" }
+        "Apple*" { return "phone" }
+        "Casa inteligente" { return "bulb" }
+        "TV*" { return "tv" }
+        "NAS*" { return "server" }
+        "Linux*" { return "server" }
+        "Raspberry*" { return "server" }
+        "Computador*" { return "monitor" }
+        "Mac" { return "monitor" }
+        "Aparelho com página web" { return "globe" }
+        default { return "help-circle" }
+    }
+}
+
+
+function Get-AgenteTIPortMeaning {
+    # O que uma porta aberta indica, em poucas palavras.
+    param ([int]$Port)
+
+    switch ($Port) {
+        22 { return "acesso remoto por SSH (Linux, roteadores, NAS)" }
+        80 { return "página de configuração (HTTP)" }
+        443 { return "página de configuração segura (HTTPS)" }
+        445 { return "compartilhamento de arquivos do Windows (SMB)" }
+        554 { return "vídeo ao vivo (RTSP), comum em câmeras" }
+        631 { return "impressão pela rede (IPP)" }
+        3389 { return "Área de Trabalho Remota do Windows" }
+        8080 { return "página web alternativa" }
+        9100 { return "impressão direta (RAW)" }
+        default { return "porta $Port" }
+    }
+}
+
+
+function ConvertTo-AgenteTINetworkScanView {
+    # O histórico de uma rede no formato da tela: todos os aparelhos (online e fora do ar), com datas, ícone e portas.
+    param (
+        [Parameter(Mandatory)]$Document,
+        $Interface = $null
+    )
+
+    $lastScan = ConvertFrom-AgenteTIScanStamp -Stamp ([string]$Document.LastScan)
+    $devices = @($Document.Devices)
+
+    # O primeiro escaneamento da rede: ninguém dele é "novo". Históricos da 1.5 não têm o campo e usam o aparelho mais antigo.
+    $firstScan = ConvertFrom-AgenteTIScanStamp -Stamp ([string]$Document.FirstScan)
+    if ($null -eq $firstScan) {
+        $firstScan = @($devices | ForEach-Object { ConvertFrom-AgenteTIScanStamp -Stamp ([string]$_.FirstSeen) } | Where-Object { $null -ne $_ } | Sort-Object) | Select-Object -First 1
+    }
+
+    $selfAddress = $(if ($null -ne $Interface) { [string]$Interface.Address } else { "" })
+    $gateway = $(if ($null -ne $Interface) { [string]$Interface.Gateway } else { [string]$Document.Gateway })
+
+    $rows = foreach ($device in $devices) {
+        $mac = [string]$device.Mac
+        $firstSeen = ConvertFrom-AgenteTIScanStamp -Stamp ([string]$device.FirstSeen)
+        $lastSeen = ConvertFrom-AgenteTIScanStamp -Stamp ([string]$device.LastSeen)
+        $online = ([string]$device.LastSeen -eq [string]$Document.LastScan)
+        $isNew = ($null -ne $firstSeen -and $null -ne $firstScan -and $firstSeen -gt $firstScan.AddSeconds(1) -and ((Get-Date) - $firstSeen).TotalHours -lt 24)
+        $ports = @($device.Ports | Where-Object { $null -ne $_ } | ForEach-Object { [int]$_ } | Sort-Object)
+        $isSelf = [bool]$device.IsSelf -or ($selfAddress -and [string]$device.Ip -eq $selfAddress -and $online)
+        $isGateway = [bool]$device.IsGateway -or ($gateway -and [string]$device.Ip -eq $gateway)
+        $vendor = [string]$device.Vendor
+        $name = [string]$device.Name
+
+        $display = $(if ($name) { $name } elseif ($vendor -and $vendor -ne "MAC privado") { "Aparelho $vendor" } else { "Aparelho sem nome" })
+
+        [PSCustomObject]@{
+            Ip          = [string]$device.Ip
+            Mac         = $mac
+            MacText     = $(if ($mac -like "IP-*") { "Não disponível" } else { Format-AgenteTIMac -Key $mac })
+            Name        = $name
+            DisplayName = $display
+            Vendor      = $vendor
+            Kind        = [string]$device.Kind
+            Icon        = Get-AgenteTINetworkDeviceIcon -Kind ([string]$device.Kind)
+            Ports       = $ports
+            PortsText   = @($ports | ForEach-Object { "$_ · $(Get-AgenteTIPortMeaning -Port $_)" })
+            Online      = $online
+            IsNew       = $isNew
+            IsSelf      = $isSelf
+            IsGateway   = $isGateway
+            RandomMac   = [bool]$device.RandomMac -or (Test-AgenteTIRandomMac -Key $mac)
+            FirstSeen   = $firstSeen
+            LastSeen    = $lastSeen
+            SortIp      = $(try { ConvertTo-AgenteTIIpNumber -Address ([string]$device.Ip) } catch { [int64]0 })
+        }
+    }
+
+    return [PSCustomObject]@{
+        Problem    = ""
+        Message    = ""
+        Network    = [string]$Document.Network
+        Connection = $(if ($null -ne $Interface) { [string]$Interface.Alias } else { [string]$Document.Connection })
+        Address    = $selfAddress
+        Gateway    = $gateway
+        Reduced    = $false
+        LastScan   = $lastScan
+        FirstScan  = $firstScan
+        Scanned    = $false
+        Seconds    = 0
+        Devices    = @($rows | Sort-Object -Property SortIp)
+    }
+}
+
+
+function New-AgenteTINetworkScanProblem {
+    param ([string]$Problem, [string]$Message, $Interface = $null)
+
+    return [PSCustomObject]@{
+        Problem = $Problem; Message = $Message; Network = ""; Connection = $(if ($Interface) { [string]$Interface.Alias } else { "" })
+        Address = $(if ($Interface) { [string]$Interface.Address } else { "" }); Gateway = $(if ($Interface) { [string]$Interface.Gateway } else { "" })
+        Reduced = $false; LastScan = $null; FirstScan = $null; Scanned = $false; Seconds = 0; Devices = @()
+    }
+}
+
+
+function Get-AgenteTINetworkScanView {
+    <#
+    O que a tela "Escanear a rede" da janela mostra. Sem -Scan, só lê o último escaneamento guardado desta rede (rápido, não
+    manda nada pela rede); com -Scan, escaneia, guarda no histórico e devolve o resultado. Nunca lança erro: um problema vem
+    em Problem ("NoNetwork", "NoRoom", "NeverScanned", "Error") com Message em português. Roda no leitor em segundo plano.
+    #>
+    param ([switch]$Scan)
+
+    try {
+        $interface = Get-AgenteTIScanInterface
+
+        if ($null -eq $interface) {
+            return (New-AgenteTINetworkScanProblem -Problem "NoNetwork" -Message "O PC não está numa rede com roteador: ligue o Wi-Fi ou conecte o cabo.")
+        }
+
+        if (-not $Scan) {
+            $document = Find-AgenteTINetworkHistory -Gateway $interface.Gateway
+
+            if ($null -eq $document) {
+                return (New-AgenteTINetworkScanProblem -Problem "NeverScanned" -Message "Esta rede ainda não foi escaneada." -Interface $interface)
+            }
+
+            return (ConvertTo-AgenteTINetworkScanView -Document $document -Interface $interface)
+        }
+
+        $watch = [System.Diagnostics.Stopwatch]::StartNew()
+        $result = Invoke-AgenteTINetworkScanPass -Interface $interface
+
+        if ($null -eq $result) {
+            return (New-AgenteTINetworkScanProblem -Problem "NoRoom" -Message "A máscara da rede (/$($interface.PrefixLength)) não deixa espaço para outros aparelhos." -Interface $interface)
+        }
+
+        $path = Get-AgenteTIScanHistoryPath -Scan $result -Interface $interface
+        $previous = Read-AgenteTINetworkHistory -Path $path
+        $stamp = (Get-Date).ToString("o", [System.Globalization.CultureInfo]::InvariantCulture)
+        Save-AgenteTINetworkHistory -Path $path -Previous $previous -Devices $result.Devices -Network $result.Network -Stamp $stamp `
+            -Gateway $interface.Gateway -Connection $interface.Alias
+
+        $document = Read-AgenteTINetworkHistory -Path $path
+        $view = ConvertTo-AgenteTINetworkScanView -Document $document -Interface $interface
+        $view.Reduced = [bool]$result.Reduced
+        $view.Scanned = $true
+        $view.Seconds = [int][Math]::Round($watch.Elapsed.TotalSeconds)
+
+        return $view
+    }
+    catch {
+        return (New-AgenteTINetworkScanProblem -Problem "Error" -Message "Não foi possível escanear a rede: $($_.Exception.Message)")
+    }
+}
+
+
+function Format-AgenteTIAgo {
+    # "agora", "há 5 min", "há 3 h", "ontem", "há 4 dias".
+    param ($When, [datetime]$Now = (Get-Date))
+
+    if ($null -eq $When) { return "nunca" }
+
+    $span = $Now - [datetime]$When
+    if ($span.TotalSeconds -lt 60) { return "agora" }
+    if ($span.TotalMinutes -lt 60) { return "há $([int][Math]::Floor($span.TotalMinutes)) min" }
+    if ($span.TotalHours -lt 24) { return "há $([int][Math]::Floor($span.TotalHours)) h" }
+
+    $days = [int][Math]::Floor($span.TotalDays)
+    if ($days -eq 1) { return "ontem" }
+
+    return "há $days dias"
+}
+
+
+function Select-AgenteTINetworkDevices {
+    <#
+    Os aparelhos que a tabela mostra: filtro de tipo (Kind vazio = todos), de situação (all, online, offline, new), busca
+    (nome, IP, MAC, fabricante ou tipo; sem diferenciar maiúsculas) e ordem (ip, name, kind, status, seen).
+    #>
+    param (
+        [AllowEmptyCollection()][object[]]$Devices = @(),
+        [string]$Kind = "",
+        [ValidateSet("all", "online", "offline", "new")][string]$Status = "all",
+        [string]$Search = "",
+        [ValidateSet("ip", "name", "kind", "status", "seen", "vendor", "mac")][string]$Sort = "ip",
+        [switch]$Descending
+    )
+
+    $list = @($Devices | Where-Object { $null -ne $_ })
+
+    if ($Kind) { $list = @($list | Where-Object { $_.Kind -eq $Kind }) }
+
+    switch ($Status) {
+        "online" { $list = @($list | Where-Object { $_.Online }) }
+        "offline" { $list = @($list | Where-Object { -not $_.Online }) }
+        "new" { $list = @($list | Where-Object { $_.IsNew }) }
+    }
+
+    $needle = $Search.Trim()
+
+    if ($needle) {
+        $compact = ($needle -replace "[:\-\.\s]", "").ToUpperInvariant()
+        $list = @($list | Where-Object {
+                $text = "$($_.DisplayName) $($_.Name) $($_.Ip) $($_.Vendor) $($_.Kind) $($_.MacText)"
+                $text.IndexOf($needle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+                ($compact.Length -ge 4 -and ([string]$_.Mac).Contains($compact))
+            })
+    }
+
+    # Em cada ordem, o desempate é o IP (a lista não troca de lugar entre um clique e outro).
+    $tieBreak = @{ Expression = { [int64]$_.SortIp } }
+    $primary = switch ($Sort) {
+        "name" { @{ Expression = { [string]$_.DisplayName } } }
+        "kind" { @{ Expression = { [string]$_.Kind } } }
+        "vendor" { @{ Expression = { [string]$_.Vendor } } }
+        "mac" { @{ Expression = { [string]$_.Mac } } }
+        "status" { @{ Expression = { [int](-not $_.Online) } } }
+        "seen" { @{ Expression = { $(if ($_.LastSeen) { [datetime]$_.LastSeen } else { [datetime]::MinValue }) } } }
+        default { $tieBreak }
+    }
+
+    $primary["Descending"] = [bool]$Descending
+    return @($list | Sort-Object -Property $primary, $tieBreak)
+}
+
+
+function Get-AgenteTINetworkKindCounts {
+    # Quantos aparelhos de cada tipo, do tipo mais comum ao menos comum. Kind, Count e Icon.
+    param ([AllowEmptyCollection()][object[]]$Devices = @())
+
+    return @(@($Devices | Where-Object { $null -ne $_ }) | Group-Object -Property Kind | Sort-Object -Property @{ Expression = "Count"; Descending = $true }, Name |
+            ForEach-Object { [PSCustomObject]@{ Kind = [string]$_.Name; Count = [int]$_.Count; Icon = Get-AgenteTINetworkDeviceIcon -Kind ([string]$_.Name) } })
+}
+
+
+function Get-AgenteTINetworkScanAlerts {
+    <#
+    O que pede atenção na rede escaneada, do mais importante ao menos: aparelhos novos, Área de Trabalho Remota aberta e
+    aparelhos sem tipo conhecido. Level (Warn, Muted, Ok), Text e Filter (o filtro de situação que mostra esses aparelhos,
+    ou "" quando o filtro é de tipo, em Kind).
+    #>
+    param ([AllowEmptyCollection()][object[]]$Devices = @())
+
+    $alerts = @()
+    $list = @($Devices | Where-Object { $null -ne $_ })
+
+    $new = @($list | Where-Object { $_.IsNew }).Count
+    if ($new -gt 0) {
+        $alerts += [PSCustomObject]@{ Level = "Warn"; Text = $(if ($new -eq 1) { "1 aparelho novo nas últimas 24 horas: confira se você o reconhece" } else { "$new aparelhos novos nas últimas 24 horas: confira se você os reconhece" }); Filter = "new"; Kind = "" }
+    }
+
+    $remote = @($list | Where-Object { $_.Online -and -not $_.IsSelf -and @($_.Ports) -contains 3389 }).Count
+    if ($remote -gt 0) {
+        $alerts += [PSCustomObject]@{ Level = "Muted"; Text = $(if ($remote -eq 1) { "1 aparelho aceita Área de Trabalho Remota (porta 3389)" } else { "$remote aparelhos aceitam Área de Trabalho Remota (porta 3389)" }); Filter = ""; Kind = "Computador Windows" }
+    }
+
+    $unknown = @($list | Where-Object { $_.Kind -eq "Desconhecido" }).Count
+    if ($unknown -gt 0) {
+        $alerts += [PSCustomObject]@{ Level = "Muted"; Text = $(if ($unknown -eq 1) { "1 aparelho sem tipo identificado" } else { "$unknown aparelhos sem tipo identificado" }); Filter = ""; Kind = "Desconhecido" }
+    }
+
+    if ($new -eq 0) {
+        $alerts += [PSCustomObject]@{ Level = "Ok"; Text = "Nenhum aparelho novo nas últimas 24 horas"; Filter = ""; Kind = "" }
+    }
+
+    return $alerts
+}
+
+
+function Export-AgenteTINetworkScanCsv {
+    # A lista da tela em CSV (separado por ponto e vírgula e com BOM, para o Excel em português abrir com os acentos).
+    param (
+        [Parameter(Mandatory)][object[]]$Devices,
+        [Parameter(Mandatory)][string]$Path
+    )
+
+    $rows = foreach ($device in $Devices) {
+        [PSCustomObject][ordered]@{
+            "Status"          = $(if ($device.Online) { "Online" } else { "Fora do ar" })
+            "Tipo"            = $device.Kind
+            "Nome"            = $device.Name
+            "Fabricante"      = $device.Vendor
+            "IP"              = $device.Ip
+            "MAC"             = $device.MacText
+            "Portas abertas"  = (@($device.Ports) -join ", ")
+            "Visto primeiro"  = $(if ($device.FirstSeen) { $device.FirstSeen.ToString("dd/MM/yyyy HH:mm") } else { "" })
+            "Visto por último" = $(if ($device.LastSeen) { $device.LastSeen.ToString("dd/MM/yyyy HH:mm") } else { "" })
+            "Novo"            = $(if ($device.IsNew) { "Sim" } else { "" })
+        }
+    }
+
+    $text = (@($rows) | ConvertTo-Csv -NoTypeInformation -Delimiter ";") -join "`r`n"
+    [System.IO.File]::WriteAllText($Path, $text + "`r`n", (New-Object System.Text.UTF8Encoding($true)))
 }
 
 
@@ -734,17 +1123,15 @@ function Invoke-AgenteTINetworkScan {
                 Write-AgenteTIStatus -Type Info -Message "A rede é grande (/$($interface.PrefixLength)): foram escaneados só os 254 endereços vizinhos deste PC ($($scan.Network))." -Notice
             }
 
-            # O roteador identifica a rede: o MAC dele, ou o IP quando o MAC não aparece.
-            $gatewayDevice = @($scan.Devices | Where-Object { $_.IsGateway }) | Select-Object -First 1
-            $networkKey = $(if ($null -ne $gatewayDevice -and $gatewayDevice.Mac -notlike "IP-*") { $gatewayDevice.Mac } else { "gw-$($interface.Gateway)" })
-            $historyPath = Get-AgenteTINetworkHistoryPath -NetworkKey $networkKey
+            $historyPath = Get-AgenteTIScanHistoryPath -Scan $scan -Interface $interface
             $previous = Read-AgenteTINetworkHistory -Path $historyPath
 
             $summary = Show-AgenteTINetworkScanResult -Scan $scan -Previous $previous
 
             try {
                 $stamp = (Get-Date).ToString("o", [System.Globalization.CultureInfo]::InvariantCulture)
-                Save-AgenteTINetworkHistory -Path $historyPath -Previous $previous -Devices $scan.Devices -Network $scan.Network -Stamp $stamp
+                Save-AgenteTINetworkHistory -Path $historyPath -Previous $previous -Devices $scan.Devices -Network $scan.Network -Stamp $stamp `
+                    -Gateway $interface.Gateway -Connection $interface.Alias
             }
             catch {
                 Write-AgenteTIStatus -Type Warning -Message "Não foi possível guardar o histórico da rede: $($_.Exception.Message)" -Notice

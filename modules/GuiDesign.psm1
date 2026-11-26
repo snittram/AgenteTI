@@ -123,6 +123,17 @@ $script:AgenteTIIcons = @{
     "keyboard" = "M 4.5 6.5 H 19.5 A 1 1 0 0 1 20.5 7.5 V 16.5 A 1 1 0 0 1 19.5 17.5 H 4.5 A 1 1 0 0 1 3.5 16.5 V 7.5 A 1 1 0 0 1 4.5 6.5 Z M 7 10 L 7.01 10 M 10.3 10 L 10.31 10 M 13.7 10 L 13.71 10 M 17 10 L 17.01 10 M 8.5 14 H 15.5"
     "mail" = "M 4.5 6 H 19.5 A 1 1 0 0 1 20.5 7 V 17 A 1 1 0 0 1 19.5 18 H 4.5 A 1 1 0 0 1 3.5 17 V 7 A 1 1 0 0 1 4.5 6 Z M 4 6.8 L 12 12.8 L 20 6.8"
     "admin" = "M 12 3.2 L 19.5 6 V 11.5 C 19.5 16 16.4 19.4 12 20.8 C 7.6 19.4 4.5 16 4.5 11.5 V 6 Z"
+
+    # Aparelhos da rede (Escanear a rede).
+    "laptop" = "M 5.5 5.5 H 18.5 A 1 1 0 0 1 19.5 6.5 V 15.5 H 4.5 V 6.5 A 1 1 0 0 1 5.5 5.5 Z M 2.5 18.5 H 21.5"
+    "router" = "M 4 13 H 20 A 1 1 0 0 1 21 14 V 18 A 1 1 0 0 1 20 19 H 4 A 1 1 0 0 1 3 18 V 14 A 1 1 0 0 1 4 13 Z M 7 16 L 7.01 16 M 10.5 16 L 10.51 16 M 17 13 V 4.5 M 7 13 L 5.5 5.5"
+    "printer" = "M 7 9 V 3.5 H 17 V 9 M 7 17.5 H 5 A 1.5 1.5 0 0 1 3.5 16 V 10.5 A 1.5 1.5 0 0 1 5 9 H 19 A 1.5 1.5 0 0 1 20.5 10.5 V 16 A 1.5 1.5 0 0 1 19 17.5 H 17 M 7 14 H 17 V 20.5 H 7 Z"
+    "camera" = "M 3.5 7 H 14.5 A 1 1 0 0 1 15.5 8 V 16 A 1 1 0 0 1 14.5 17 H 3.5 A 1 1 0 0 1 2.5 16 V 8 A 1 1 0 0 1 3.5 7 Z M 15.5 10.5 L 21 7.5 V 16.5 L 15.5 13.5"
+    "phone" = "M 8 3 H 16 A 1.5 1.5 0 0 1 17.5 4.5 V 19.5 A 1.5 1.5 0 0 1 16 21 H 8 A 1.5 1.5 0 0 1 6.5 19.5 V 4.5 A 1.5 1.5 0 0 1 8 3 Z M 11 18 H 13"
+    "bulb" = "M 9 17.5 H 15 M 10 20.5 H 14 M 9 17.5 V 15.5 C 7.2 14.3 6 12.4 6 10 A 6 6 0 0 1 18 10 C 18 12.4 16.8 14.3 15 15.5 V 17.5"
+    "tv" = "M 4 5.5 H 20 A 1 1 0 0 1 21 6.5 V 16 A 1 1 0 0 1 20 17 H 4 A 1 1 0 0 1 3 16 V 6.5 A 1 1 0 0 1 4 5.5 Z M 8 20.5 H 16"
+    "server" = "M 4.5 4 H 19.5 A 1 1 0 0 1 20.5 5 V 9.5 A 1 1 0 0 1 19.5 10.5 H 4.5 A 1 1 0 0 1 3.5 9.5 V 5 A 1 1 0 0 1 4.5 4 Z M 4.5 13.5 H 19.5 A 1 1 0 0 1 20.5 14.5 V 19 A 1 1 0 0 1 19.5 20 H 4.5 A 1 1 0 0 1 3.5 19 V 14.5 A 1 1 0 0 1 4.5 13.5 Z M 7.5 7.25 L 7.51 7.25 M 7.5 16.75 L 7.51 16.75"
+    "help-circle" = "M 12 20.5 A 8.5 8.5 0 1 1 12 3.5 A 8.5 8.5 0 1 1 12 20.5 Z M 9.6 9.5 A 2.5 2.5 0 1 1 13 11.8 C 12.3 12.1 12 12.6 12 13.4 V 14 M 12 17 L 12.01 17"
 }
 
 # O ícone de cada página, de cada item da navegação e de cada cartão do Início ("fact.<id>"). Item sem ícone próprio usa o
@@ -162,7 +173,7 @@ $script:AgenteTIIconNames = @{
     "software.startup-manager" = "power"; "software.startup" = "play"; "software.features" = "sliders"
     "software.backup" = "upload"; "software.restore" = "download"
 
-    "network.info" = "info"; "network.ping" = "pulse"; "network.speed" = "speed"; "network.scan" = "search";"network.wifi-report" = "document"
+    "network.info" = "info"; "network.ping" = "pulse"; "network.speed" = "speed"; "network.scan" = "router"; "network.wifi-report" = "document"
     "network.repair" = "wrench"; "network.dns" = "globe"; "network.dns-undo" = "undo"
 
     "tweaks.recommended" = "sparkles"; "tweaks.profiles" = "list"; "tweaks.restore-point" = "restore"; "tweaks.export" = "upload"

@@ -3,6 +3,11 @@
 Numeração: começa em 1.0 e sobe +1 depois do ponto a cada alteração (1.0 → 1.1 → 1.2 … 1.9 → 1.10 → 1.11).
 A versão fica em `modules\Core.psm1` (`$script:AgenteTIBuild`).
 
+## 1.6 (26/11/2026)
+
+- **Escanear a rede** ganhou tela própria na janela, no lugar do texto: tabela de aparelhos com ícone por tipo (celular, computador, impressora, câmera, roteador, TV, casa inteligente, servidor), situação **Online** ou **Fora do ar** (os que saíram ficam esmaecidos), "visto por último", fabricante, IP e MAC. Filtros por tipo (com a contagem de cada um) e por situação (online, fora do ar, novos), busca por nome, IP, MAC ou fabricante e ordenação clicando no título da coluna. Clicar num aparelho abre os detalhes: primeira e última vez visto, portas abertas e o que cada uma indica, e botões para abrir a página do aparelho e copiar o IP ou o MAC. O cartão **Segurança da rede** aponta aparelhos novos nas últimas 24 horas, Área de Trabalho Remota aberta e aparelhos sem tipo; cada item filtra a tabela. **Exportar CSV** salva a lista para o Excel.
+- O escaneamento só roda quando você clica em **Escanear agora**; ao abrir, a tela mostra o último escaneamento guardado. Ele roda em segundo plano: a janela continua respondendo. No menu de terminal, a ação continua em texto.
+
 ## 1.5 (26/11/2026)
 
 - Rede: nova ação **Escanear a rede**, no grupo "Ver e testar". Encontra os aparelhos ligados à rede local (ping em paralelo e tabela ARP, o que acha também os que bloqueiam o ping) e mostra IP, nome, fabricante (pela lista de prefixos MAC do Wireshark, baixada uma vez e renovada a cada 90 dias), MAC e o tipo provável (roteador, impressora, câmera, computador, celular...), adivinhado pelo fabricante e por algumas portas comuns. Guarda o histórico de cada rede e mostra os aparelhos que entraram (marcados como NOVO) e os que saíram desde o escaneamento anterior; o botão **Escanear de novo** repete a varredura para acompanhar a rede. Redes maiores que /22 são escaneadas só no /24 do PC.
