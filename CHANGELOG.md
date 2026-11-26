@@ -3,6 +3,10 @@
 Numeração: começa em 1.0 e sobe +1 depois do ponto a cada alteração (1.0 → 1.1 → 1.2 … 1.9 → 1.10 → 1.11).
 A versão fica em `modules\Core.psm1` (`$script:AgenteTIBuild`).
 
+## 1.5 (26/11/2026)
+
+- Rede: nova ação **Escanear a rede**, no grupo "Ver e testar". Encontra os aparelhos ligados à rede local (ping em paralelo e tabela ARP, o que acha também os que bloqueiam o ping) e mostra IP, nome, fabricante (pela lista de prefixos MAC do Wireshark, baixada uma vez e renovada a cada 90 dias), MAC e o tipo provável (roteador, impressora, câmera, computador, celular...), adivinhado pelo fabricante e por algumas portas comuns. Guarda o histórico de cada rede e mostra os aparelhos que entraram (marcados como NOVO) e os que saíram desde o escaneamento anterior; o botão **Escanear de novo** repete a varredura para acompanhar a rede. Redes maiores que /22 são escaneadas só no /24 do PC.
+
 ## 1.4 (22/11/2026)
 
 - Ajustes do Windows: nova ação **Limite de anexos do Outlook**, a primeira da página. Mostra o limite de agora e grava o tamanho máximo de anexo do Outlook clássico (`MaximumAttachmentSize`, em KB, em `HKCU\Software\Microsoft\Office\<versão>\Outlook\Preferences`): 25, 50, 100 ou 150 MB, outro valor de 1 a 2048 MB, ou a volta ao padrão do Outlook (20 MB). Avisa que o servidor de e-mail tem limite próprio e que o Outlook precisa ser reaberto.

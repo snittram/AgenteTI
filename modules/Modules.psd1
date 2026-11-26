@@ -18,6 +18,7 @@
         'Software',
         'Network',
         'NetworkTools',
+        'NetworkScan',
         'Diagnostics',
         'WindowsUpdate',
         'Startup',

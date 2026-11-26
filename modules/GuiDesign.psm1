@@ -162,7 +162,7 @@ $script:AgenteTIIconNames = @{
     "software.startup-manager" = "power"; "software.startup" = "play"; "software.features" = "sliders"
     "software.backup" = "upload"; "software.restore" = "download"
 
-    "network.info" = "info"; "network.ping" = "pulse"; "network.speed" = "speed"; "network.wifi-report" = "document"
+    "network.info" = "info"; "network.ping" = "pulse"; "network.speed" = "speed"; "network.scan" = "search";"network.wifi-report" = "document"
     "network.repair" = "wrench"; "network.dns" = "globe"; "network.dns-undo" = "undo"
 
     "tweaks.recommended" = "sparkles"; "tweaks.profiles" = "list"; "tweaks.restore-point" = "restore"; "tweaks.export" = "upload"

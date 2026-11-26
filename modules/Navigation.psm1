@@ -337,6 +337,9 @@ function Get-AgenteTINavigation {
         (New-AgenteTINavItem -Id "network.speed" -Label "Testar velocidade da internet" -Group "Ver e testar" `
             -Keywords "speedtest internet lenta wifi download upload mbps banda teste" `
             -Description "Latência, download e upload (usa cerca de 35 MB)" -Command "Test-AgenteTIInternetSpeed"),
+        (New-AgenteTINavItem -Id "network.scan" -Label "Escanear a rede" -Group "Ver e testar" `
+            -Keywords "fing scanner varredura dispositivos aparelhos conectados quem está na minha rede intruso desconhecido ip mac fabricante monitorar lan impressora câmera" `
+            -Description "Lista os aparelhos ligados à rede (IP, nome, fabricante, tipo) e mostra os que entraram ou saíram" -Command "Invoke-AgenteTINetworkScan"),
         (New-AgenteTINavItem -Id "network.wifi-report" -Label "Relatório de Wi-Fi" -Group "Ver e testar" -Admin `
             -Keywords "wlan quedas desconexoes sinal wireless wifi wi-fi sem fio caindo cai caiu desconectando instável fraco" `
             -Description "Gera o relatório do Windows com as sessões e as quedas do Wi-Fi dos últimos dias" -Command "Show-AgenteTIWifiReport"),
